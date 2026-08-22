@@ -78,16 +78,16 @@ export const TEMPLATE_CONFIG: Record<ExcelImportType, TemplateInfo> = {
   siswa: {
     title: 'Template Data Murid',
     filename: 'Template_Data_Murid.xlsx',
-    columns: ['Nama Siswa', 'NIS', 'Kelas'],
+    columns: ['Nama Murid', 'NIS', 'Kelas'],
     sampleRows: [
-      { 'Nama Siswa': 'Ahmad Fauzi', 'NIS': '20261001', 'Kelas': 'X-1' },
-      { 'Nama Siswa': 'Aulia Putri Lestari', 'NIS': '20261002', 'Kelas': 'X-1' },
-      { 'Nama Siswa': 'Bagas Pratama', 'NIS': '20261003', 'Kelas': 'XI MIPA 1' },
-      { 'Nama Siswa': 'Cantika Dewi', 'NIS': '20261004', 'Kelas': 'XI MIPA 1' },
-      { 'Nama Siswa': 'Dimas Anggara', 'NIS': '20261005', 'Kelas': 'XII IPS 1' }
+      { 'Nama Murid': 'Ahmad Fauzi', 'NIS': '20261001', 'Kelas': 'X-1' },
+      { 'Nama Murid': 'Aulia Putri Lestari', 'NIS': '20261002', 'Kelas': 'X-1' },
+      { 'Nama Murid': 'Bagas Pratama', 'NIS': '20261003', 'Kelas': 'XI MIPA 1' },
+      { 'Nama Murid': 'Cantika Dewi', 'NIS': '20261004', 'Kelas': 'XI MIPA 1' },
+      { 'Nama Murid': 'Dimas Anggara', 'NIS': '20261005', 'Kelas': 'XII IPS 1' }
     ],
     notes: [
-      'Semua kolom ("Nama Siswa", "NIS", "Kelas") wajib diisi.',
+      'Semua kolom ("Nama Murid", "NIS", "Kelas") wajib diisi.',
       'Pastikan penulisan "Kelas" sesuai dengan daftar kelas yang ada di sistem.'
     ]
   },
@@ -130,10 +130,10 @@ export function downloadExcelTemplate(type: ExcelImportType) {
  */
 export function downloadTemplateMuridKelas(kelasName: string) {
   const sampleRows = [
-    { 'Nama Siswa': 'Ahmad Fauzi', 'NIS': '20261001', 'Kelas': kelasName },
-    { 'Nama Siswa': 'Aulia Putri Lestari', 'NIS': '20261002', 'Kelas': kelasName },
-    { 'Nama Siswa': 'Bagas Pratama', 'NIS': '20261003', 'Kelas': kelasName },
-    { 'Nama Siswa': 'Cantika Dewi', 'NIS': '20261004', 'Kelas': kelasName }
+    { 'Nama Murid': 'Ahmad Fauzi', 'NIS': '20261001', 'Kelas': kelasName },
+    { 'Nama Murid': 'Aulia Putri Lestari', 'NIS': '20261002', 'Kelas': kelasName },
+    { 'Nama Murid': 'Bagas Pratama', 'NIS': '20261003', 'Kelas': kelasName },
+    { 'Nama Murid': 'Cantika Dewi', 'NIS': '20261004', 'Kelas': kelasName }
   ];
   const worksheet = XLSX.utils.json_to_sheet(sampleRows);
   worksheet['!cols'] = [{ wch: 32 }, { wch: 20 }, { wch: 20 }];
@@ -527,7 +527,7 @@ export async function parseExcelFile(
           '';
 
         if (!nama) {
-          errors.push(`Baris ${rowNum}: Nama Siswa kosong.`);
+          errors.push(`Baris ${rowNum}: Nama Murid kosong.`);
         } else if (!kelas) {
           errors.push(`Baris ${rowNum}: Kelas untuk "${nama}" kosong.`);
         } else {

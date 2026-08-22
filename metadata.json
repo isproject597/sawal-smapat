@@ -1,6 +1,6 @@
 {
   "name": "SAWAL - SMAN 4 BERAU",
-  "description": "Sistem Aduan Wali Kelas SMA Negeri 4 Berau untuk pelaporan dan pemantauan tindak lanjut disiplin siswa.",
+  "description": "Sistem Aduan Wali Kelas SMA Negeri 4 Berau untuk pelaporan dan pemantauan tindak lanjut disiplin murid.",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

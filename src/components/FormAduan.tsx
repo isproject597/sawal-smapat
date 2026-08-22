@@ -310,7 +310,7 @@ export const FormAduan: React.FC<FormAduanProps> = ({
                 </span>
               ) : selectedSiswaList.length === 0 ? (
                 <span className="text-teal-800 font-medium">
-                  -- Pilih nama murid kelas {kelas} ({filteredSiswa.length} siswa) --
+                  -- Pilih nama murid kelas {kelas} ({filteredSiswa.length} murid) --
                 </span>
               ) : (
                 <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto pr-1">
@@ -352,10 +352,10 @@ export const FormAduan: React.FC<FormAduanProps> = ({
                     <UserX className="w-6 h-6 text-amber-600 mx-auto" />
                     <p className="text-xs font-bold text-amber-900">Daftar Nama Murid Kosong</p>
                     <p className="text-[11px] text-amber-700 leading-relaxed">
-                      Belum ada data siswa yang terdaftar untuk <strong>Kelas {kelas}</strong>.
+                      Belum ada data murid yang terdaftar untuk <strong>Kelas {kelas}</strong>.
                     </p>
                     <p className="text-[10px] text-slate-500 italic">
-                      (Data siswa kelas ini dapat ditambahkan atau diimpor Excel melalui menu Login Wali Kelas &gt; Panel Admin)
+                      (Data murid kelas ini dapat ditambahkan atau diimpor Excel melalui menu Login Wali Kelas &gt; Panel Admin)
                     </p>
                   </div>
                 ) : (

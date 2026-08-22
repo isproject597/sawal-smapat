@@ -1040,7 +1040,7 @@ function doPost(e) {
                 </button>
               </div>
               <p className="text-[10px] text-teal-800">
-                Pasang script Web App agar aduan dari siswa/guru dan perubahan master data langsung ter-rekap secara instan.
+                Pasang script Web App agar aduan dari murid/guru dan perubahan master data langsung ter-rekap secara instan.
               </p>
             </div>
 

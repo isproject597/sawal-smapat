@@ -68,7 +68,7 @@ export const WaliKelasLoginModal: React.FC<WaliKelasLoginModalProps> = ({
               <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide">
                 Login Wali Kelas
               </h3>
-              <p className="text-[11px] text-slate-500">Masuk untuk Menindaklanjuti Aduan Siswa</p>
+              <p className="text-[11px] text-slate-500">Masuk untuk Menindaklanjuti Aduan Murid</p>
             </div>
           </div>
           <button
