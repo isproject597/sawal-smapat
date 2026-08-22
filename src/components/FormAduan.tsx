@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Send, FileText, CheckCircle2, Clock, AlertCircle, Users, Check, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Send, FileText, CheckCircle2, Clock, AlertCircle, Users, Check, ChevronDown, UserX, AlertTriangle } from 'lucide-react';
 import { Guru, Mapel, Kelas, Siswa, Aduan } from '../types';
 import { JENIS_KESALAHAN_OPTIONS } from '../data/mockData';
 import { getStoredSheetsToken } from '../services/googleSheets';
@@ -33,6 +33,7 @@ export const FormAduan: React.FC<FormAduanProps> = ({
   // Dropdown student multi-select search state
   const [isStudentDropdownOpen, setIsStudentDropdownOpen] = useState(false);
   const [studentSearch, setStudentSearch] = useState('');
+  const studentDropdownRef = useRef<HTMLDivElement>(null);
 
   // Real-time Indonesian Clock state
   const [currentTimestamp, setCurrentTimestamp] = useState('');
@@ -40,6 +41,22 @@ export const FormAduan: React.FC<FormAduanProps> = ({
   // Form submission feedback modal
   const [submittedAduanId, setSubmittedAduanId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Handle outside click to close student dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        studentDropdownRef.current &&
+        !studentDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsStudentDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   // Update real-time Indonesian timestamp
   useEffect(() => {
@@ -64,13 +81,17 @@ export const FormAduan: React.FC<FormAduanProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // Filter available students based on selected class
-  const filteredSiswa = siswaList.filter((s) => !kelas || s.kelas === kelas);
+  // Filter available students strictly based on selected class (only if a class is chosen)
+  const filteredSiswa = kelas
+    ? siswaList.filter((s) => s.kelas === kelas && !s.isDeleted)
+    : [];
 
-  // When class changes, filter out students no longer in the list
+  // When class changes, reset selected students and search filter
   const handleKelasChange = (newKelas: string) => {
     setKelas(newKelas);
     setSelectedSiswaList([]);
+    setStudentSearch('');
+    if (formError) setFormError(null);
   };
 
   // Toggle student selection
@@ -117,11 +138,11 @@ export const FormAduan: React.FC<FormAduanProps> = ({
       return;
     }
     if (!kelas) {
-      setFormError('Kelas yang diajar wajib dipilih.');
+      setFormError('Kelas yang diajar wajib dipilih terlebih dahulu.');
       return;
     }
     if (selectedSiswaList.length === 0) {
-      setFormError('Pilih sekurang-kurangnya 1 (satu) nama murid.');
+      setFormError(`Pilih sekurang-kurangnya 1 (satu) nama murid dari kelas ${kelas}.`);
       return;
     }
     if (!jenisKesalahan) {
@@ -253,14 +274,14 @@ export const FormAduan: React.FC<FormAduanProps> = ({
           </div>
 
           {/* 4. Nama Murid (Multi-Select) */}
-          <div className="space-y-1 relative">
+          <div className="space-y-1 relative" ref={studentDropdownRef}>
             <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wide flex items-center justify-between">
               <span>
                 Nama Murid <span className="text-rose-500">*</span> (Dapat memilih &gt; 1)
               </span>
               {selectedSiswaList.length > 0 && (
                 <span className="bg-teal-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">
-                  {selectedSiswaList.length} Dipilih
+                  {selectedSiswaList.length} Murid Dipilih
                 </span>
               )}
             </label>
@@ -269,11 +290,27 @@ export const FormAduan: React.FC<FormAduanProps> = ({
             <div
               onClick={() => setIsStudentDropdownOpen(!isStudentDropdownOpen)}
               id="trigger-select-siswa"
-              className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-xs md:text-sm text-slate-800 cursor-pointer flex items-center justify-between min-h-[42px] hover:border-teal-500 transition-all"
+              className={`w-full p-2.5 rounded-lg text-xs md:text-sm cursor-pointer flex items-center justify-between min-h-[42px] border transition-all ${
+                !kelas
+                  ? 'bg-slate-100 border-slate-300 text-slate-400 hover:border-amber-400'
+                  : filteredSiswa.length === 0
+                  ? 'bg-amber-50/60 border-amber-300 text-amber-800'
+                  : 'bg-slate-50 border-slate-300 text-slate-800 hover:border-teal-500'
+              }`}
             >
-              {selectedSiswaList.length === 0 ? (
-                <span className="text-slate-400 font-normal">
-                  {kelas ? `Pilih murid dari kelas ${kelas}...` : 'Pilih kelas terlebih dahulu...'}
+              {!kelas ? (
+                <span className="text-slate-400 font-normal italic flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  Pilih kelas yang diajar terlebih dahulu...
+                </span>
+              ) : filteredSiswa.length === 0 ? (
+                <span className="text-amber-800 font-semibold flex items-center gap-1.5">
+                  <UserX className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  Daftar nama murid kosong (Kelas {kelas})
+                </span>
+              ) : selectedSiswaList.length === 0 ? (
+                <span className="text-teal-800 font-medium">
+                  -- Pilih nama murid kelas {kelas} ({filteredSiswa.length} siswa) --
                 </span>
               ) : (
                 <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto pr-1">
@@ -301,58 +338,87 @@ export const FormAduan: React.FC<FormAduanProps> = ({
 
             {/* Dropdown Multi-Select Menu */}
             {isStudentDropdownOpen && (
-              <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-300 rounded-lg shadow-xl p-3 max-h-60 overflow-y-auto space-y-2">
-                <div className="flex items-center justify-between border-b pb-2">
-                  <input
-                    type="text"
-                    placeholder="Cari nama murid..."
-                    value={studentSearch}
-                    onChange={(e) => setStudentSearch(e.target.value)}
-                    className="p-1.5 bg-slate-100 border border-slate-300 rounded text-xs w-2/3 outline-none focus:border-teal-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSelectAllSiswa}
-                    className="text-[11px] font-bold text-teal-700 hover:text-teal-900 underline"
-                  >
-                    {selectedSiswaList.length === filteredSiswa.length ? 'Batal Semua' : 'Pilih Semua'}
-                  </button>
-                </div>
-
-                <div className="space-y-1">
-                  {filteredSiswa
-                    .filter((s) => s.nama.toLowerCase().includes(studentSearch.toLowerCase()))
-                    .map((siswa) => {
-                      const isSelected = selectedSiswaList.includes(siswa.nama);
-                      return (
-                        <div
-                          key={siswa.id}
-                          onClick={() => toggleStudentSelection(siswa.nama)}
-                          className={`flex items-center justify-between p-2 rounded cursor-pointer text-xs font-medium transition-colors ${
-                            isSelected ? 'bg-teal-100 text-teal-900 font-bold' : 'hover:bg-slate-100 text-slate-700'
-                          }`}
-                        >
-                          <span>
-                            {siswa.nama} <span className="text-slate-400 text-[10px]">({siswa.nis})</span>
-                          </span>
-                          {isSelected && <Check className="w-4 h-4 text-teal-700 font-bold" />}
-                        </div>
-                      );
-                    })}
-                  {filteredSiswa.length === 0 && (
-                    <div className="p-3 text-center text-xs text-slate-400 italic">
-                      Tidak ada data murid. Silakan pilih kelas atau tambahkan murid di menu Admin.
+              <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-300 rounded-lg shadow-xl p-3 max-h-72 overflow-y-auto space-y-2">
+                {!kelas ? (
+                  <div className="p-4 text-center space-y-2 bg-slate-50 border border-slate-200 rounded-lg">
+                    <AlertCircle className="w-6 h-6 text-amber-500 mx-auto" />
+                    <p className="text-xs font-bold text-slate-800">Kelas Belum Dipilih</p>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      Silakan pilih <strong>Kelas yang Diajar</strong> pada kotak pilihan di sebelah kiri terlebih dahulu agar daftar nama murid dapat dimuat sesuai kelasnya.
+                    </p>
+                  </div>
+                ) : filteredSiswa.length === 0 ? (
+                  <div className="p-4 text-center space-y-2 bg-amber-50/70 border border-amber-200 rounded-lg">
+                    <UserX className="w-6 h-6 text-amber-600 mx-auto" />
+                    <p className="text-xs font-bold text-amber-900">Daftar Nama Murid Kosong</p>
+                    <p className="text-[11px] text-amber-700 leading-relaxed">
+                      Belum ada data siswa yang terdaftar untuk <strong>Kelas {kelas}</strong>.
+                    </p>
+                    <p className="text-[10px] text-slate-500 italic">
+                      (Data siswa kelas ini dapat ditambahkan atau diimpor Excel melalui menu Login Wali Kelas &gt; Panel Admin)
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between border-b pb-2 gap-2">
+                      <input
+                        type="text"
+                        placeholder={`Cari nama murid kelas ${kelas}...`}
+                        value={studentSearch}
+                        onChange={(e) => setStudentSearch(e.target.value)}
+                        className="p-1.5 bg-slate-100 border border-slate-300 rounded text-xs flex-1 outline-none focus:border-teal-500"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSelectAllSiswa}
+                        className="text-[11px] font-bold text-teal-700 hover:text-teal-900 underline whitespace-nowrap"
+                      >
+                        {selectedSiswaList.length === filteredSiswa.length ? 'Batal Semua' : 'Pilih Semua'}
+                      </button>
                     </div>
-                  )}
-                </div>
 
-                <button
-                  type="button"
-                  onClick={() => setIsStudentDropdownOpen(false)}
-                  className="w-full mt-2 bg-teal-800 text-white font-bold text-xs py-1.5 rounded hover:bg-teal-900"
-                >
-                  Selesai Memilih
-                </button>
+                    <div className="space-y-1 max-h-48 overflow-y-auto">
+                      {filteredSiswa
+                        .filter((s) => s.nama.toLowerCase().includes(studentSearch.toLowerCase()))
+                        .map((siswa) => {
+                          const isSelected = selectedSiswaList.includes(siswa.nama);
+                          return (
+                            <div
+                              key={siswa.id}
+                              onClick={() => toggleStudentSelection(siswa.nama)}
+                              className={`flex items-center justify-between p-2 rounded cursor-pointer text-xs font-medium transition-colors ${
+                                isSelected ? 'bg-teal-100 text-teal-900 font-bold' : 'hover:bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              <span>
+                                {siswa.nama} <span className="text-slate-400 text-[10px]">({siswa.nis})</span>
+                              </span>
+                              {isSelected && <Check className="w-4 h-4 text-teal-700 font-bold" />}
+                            </div>
+                          );
+                        })}
+                      {filteredSiswa.filter((s) => s.nama.toLowerCase().includes(studentSearch.toLowerCase())).length === 0 && (
+                        <div className="p-3 text-center text-xs text-slate-400 italic">
+                          Nama murid "{studentSearch}" tidak ditemukan di kelas {kelas}.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-2 border-t flex items-center justify-between">
+                      <span className="text-[11px] text-slate-500">
+                        Total {filteredSiswa.length} murid di {kelas}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsStudentDropdownOpen(false)}
+                        className="bg-teal-800 text-white font-bold text-xs px-3 py-1.5 rounded hover:bg-teal-900"
+                      >
+                        Selesai Memilih ({selectedSiswaList.length})
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
