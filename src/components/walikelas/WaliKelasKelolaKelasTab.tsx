@@ -49,7 +49,7 @@ interface WaliKelasKelolaKelasTabProps {
   session: UserSession;
   siswaList: Siswa[];
   kelasList?: Kelas[];
-  onUpdateSiswa: (list: Siswa[]) => void;
+  onUpdateSiswa: (list: Siswa[], deletedList?: Siswa[]) => void;
   showNotification: (msg: string) => void;
 }
 
@@ -397,6 +397,7 @@ export const WaliKelasKelolaKelasTab: React.FC<WaliKelasKelolaKelasTabProps> = (
     const actor = `${session.nama || 'Wali Kelas'} (${session.kelasAssigned || 'Wali Kelas'})`;
 
     if (deleteModal.type === 'single' && deleteModal.targetId) {
+      let updatedDeleted = deletedSiswaList;
       const target = siswaList.find((s) => s.id === deleteModal.targetId);
       if (target) {
         const deletedRecord: Siswa = {
@@ -405,11 +406,11 @@ export const WaliKelasKelolaKelasTab: React.FC<WaliKelasKelolaKelasTabProps> = (
           deletedAt: timestamp,
           deletedBy: actor
         };
-        const updatedDeleted = recordDeletedSiswa([deletedRecord]);
+        updatedDeleted = recordDeletedSiswa([deletedRecord]);
         setDeletedSiswaList(updatedDeleted);
       }
       const remaining = siswaList.filter((s) => s.id !== deleteModal.targetId);
-      onUpdateSiswa(remaining);
+      onUpdateSiswa(remaining, updatedDeleted);
       setSelectedIds((prev) => prev.filter((id) => id !== deleteModal.targetId));
       showNotification(`✅ Murid "${deleteModal.targetName || 'Siswa'}" berhasil dihapus.`);
     } else if (deleteModal.type === 'bulk' && deleteModal.targetIds) {
@@ -424,7 +425,7 @@ export const WaliKelasKelolaKelasTab: React.FC<WaliKelasKelolaKelasTabProps> = (
       setDeletedSiswaList(updatedDeleted);
 
       const remaining = siswaList.filter((s) => !deleteModal.targetIds!.includes(s.id));
-      onUpdateSiswa(remaining);
+      onUpdateSiswa(remaining, updatedDeleted);
       setSelectedIds([]);
       showNotification(`✅ ${deleteModal.targetIds.length} murid berhasil dihapus secara massal.`);
     } else if (deleteModal.type === 'permanent-single' && deleteModal.targetId) {
@@ -432,6 +433,7 @@ export const WaliKelasKelolaKelasTab: React.FC<WaliKelasKelolaKelasTabProps> = (
       saveDeletedSiswa(newDeleted);
       setDeletedSiswaList(newDeleted);
       setSelectedDeletedIds((prev) => prev.filter((id) => id !== deleteModal.targetId));
+      onUpdateSiswa(siswaList, newDeleted);
       triggerBackgroundAutoSync('murid', { siswaList, deletedSiswaList: newDeleted });
       showNotification(`✅ Murid "${deleteModal.targetName || 'Siswa'}" dihapus permanen dari riwayat.`);
     } else if (deleteModal.type === 'permanent-bulk' && deleteModal.targetIds) {
@@ -439,6 +441,7 @@ export const WaliKelasKelolaKelasTab: React.FC<WaliKelasKelolaKelasTabProps> = (
       saveDeletedSiswa(newDeleted);
       setDeletedSiswaList(newDeleted);
       setSelectedDeletedIds([]);
+      onUpdateSiswa(siswaList, newDeleted);
       triggerBackgroundAutoSync('murid', { siswaList, deletedSiswaList: newDeleted });
       showNotification(`✅ ${deleteModal.targetIds.length} riwayat murid berhasil dihapus permanen.`);
     }
@@ -457,7 +460,7 @@ export const WaliKelasKelolaKelasTab: React.FC<WaliKelasKelolaKelasTabProps> = (
     const newDeleted = deletedSiswaList.filter((s) => s.id !== siswa.id);
     saveDeletedSiswa(newDeleted);
     setDeletedSiswaList(newDeleted);
-    onUpdateSiswa([...siswaList, restored]);
+    onUpdateSiswa([...siswaList, restored], newDeleted);
     setSelectedDeletedIds((prev) => prev.filter((id) => id !== siswa.id));
     showNotification(`✅ Murid "${siswa.nama}" (${siswa.kelas}) berhasil dipulihkan kembali ke kelas aktif.`);
   };
@@ -475,7 +478,7 @@ export const WaliKelasKelolaKelasTab: React.FC<WaliKelasKelolaKelasTabProps> = (
     const newDeleted = deletedSiswaList.filter((s) => !selectedDeletedIds.includes(s.id));
     saveDeletedSiswa(newDeleted);
     setDeletedSiswaList(newDeleted);
-    onUpdateSiswa([...siswaList, ...restoredList]);
+    onUpdateSiswa([...siswaList, ...restoredList], newDeleted);
     setSelectedDeletedIds([]);
     showNotification(`✅ ${targets.length} murid berhasil dipulihkan secara massal ke kelas aktif.`);
   };

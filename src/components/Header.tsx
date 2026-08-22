@@ -6,7 +6,9 @@ import {
   FileText,
   Search,
   BarChart3,
-  LayoutDashboard
+  LayoutDashboard,
+  Radio,
+  Users
 } from 'lucide-react';
 import { UserSession } from '../types';
 import logoSman4 from '../assets/images/sman4_original_logo_1786626221084.jpg';
@@ -20,6 +22,8 @@ interface HeaderProps {
   onOpenWaliKelasLogin: () => void;
   onOpenAdminLogin?: () => void;
   onLogout: () => void;
+  isLiveConnected?: boolean;
+  connectedClientsCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -27,7 +31,9 @@ export const Header: React.FC<HeaderProps> = ({
   activeSubMenu,
   onSelectSubMenu,
   onOpenWaliKelasLogin,
-  onLogout
+  onLogout,
+  isLiveConnected = true,
+  connectedClientsCount = 1
 }) => {
   return (
     <header className="bg-gradient-to-r from-teal-900 via-teal-850 to-cyan-950 text-white border-b-4 border-teal-500 shadow-xl shrink-0">
@@ -52,9 +58,27 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Text Header */}
           <div>
-            <h1 className="text-base md:text-xl font-black tracking-tight leading-none uppercase text-white flex items-center gap-2">
-              SAWAL - SMAN 4 BERAU
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base md:text-xl font-black tracking-tight leading-none uppercase text-white flex items-center gap-2">
+                SAWAL - SMAN 4 BERAU
+              </h1>
+              {/* Real-time sync badge */}
+              <span
+                className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                  isLiveConnected
+                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50'
+                    : 'bg-amber-950/80 text-amber-300 border-amber-500/50'
+                }`}
+                title={`Koneksi real-time aktif (${connectedClientsCount} perangkat terhubung)`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isLiveConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                  }`}
+                />
+                {isLiveConnected ? 'REAL-TIME AKTIF' : 'MENYINKRONKAN...'}
+              </span>
+            </div>
             <p className="text-[11px] font-semibold text-teal-200 tracking-wider mt-1 uppercase flex items-center gap-1.5">
               Sistem Aduan Wali Kelas
             </p>

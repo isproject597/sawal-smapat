@@ -83,7 +83,12 @@ export const FormAduan: React.FC<FormAduanProps> = ({
 
   // Filter available students strictly based on selected class (only if a class is chosen)
   const filteredSiswa = kelas
-    ? siswaList.filter((s) => s.kelas === kelas && !s.isDeleted)
+    ? siswaList.filter(
+        (s) =>
+          s.kelas &&
+          s.kelas.trim().toLowerCase() === kelas.trim().toLowerCase() &&
+          !s.isDeleted
+      )
     : [];
 
   // When class changes, reset selected students and search filter

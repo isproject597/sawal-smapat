@@ -30,7 +30,7 @@ interface WaliKelasDashboardProps {
   deletedAduanList?: Aduan[];
   siswaList?: Siswa[];
   kelasList?: Kelas[];
-  onUpdateSiswa?: (list: Siswa[]) => void;
+  onUpdateSiswa?: (list: Siswa[], deletedList?: Siswa[]) => void;
   onUpdateAduanStatus: (
     aduanId: string,
     newStatus: StatusAduan,

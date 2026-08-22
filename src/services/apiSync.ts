@@ -1,4 +1,4 @@
-import { Aduan, AccountWaliKelas, Siswa, Guru, Mapel, Kelas } from '../types';
+import { Aduan, AccountWaliKelas, Siswa, Guru, Mapel, Kelas, StatusAduan } from '../types';
 
 export interface FullDatabasePayload {
   aduanList: Aduan[];
@@ -24,9 +24,86 @@ export interface ServerConfig {
 export interface ServerDbResponse {
   success: boolean;
   hasData: boolean;
+  connectedClients?: number;
   db: Partial<FullDatabasePayload> & { lastUpdated?: string };
   config: ServerConfig;
   timestamp: string;
+}
+
+export interface RealTimeEventPayload {
+  type: 'init' | 'db_update' | 'ping';
+  action?: string;
+  connectedClients?: number;
+  db?: Partial<FullDatabasePayload> & { lastUpdated?: string };
+  config?: ServerConfig;
+  timestamp?: string;
+  details?: any;
+}
+
+/**
+ * Real-time SSE Connection Manager for 40+ concurrent devices
+ */
+export function subscribeToRealTimeEvents(
+  onUpdate: (payload: RealTimeEventPayload) => void,
+  onStatusChange?: (connected: boolean, clientCount?: number) => void
+): () => void {
+  let eventSource: EventSource | null = null;
+  let isClosed = false;
+  let retryTimeout: any = null;
+
+  const connect = () => {
+    if (isClosed) return;
+
+    try {
+      eventSource = new EventSource('/api/events');
+
+      eventSource.onopen = () => {
+        if (onStatusChange) onStatusChange(true);
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data: RealTimeEventPayload = JSON.parse(event.data);
+          if (data && data.db) {
+            onUpdate(data);
+          }
+          if (data && data.connectedClients !== undefined && onStatusChange) {
+            onStatusChange(true, data.connectedClients);
+          }
+        } catch (err) {
+          console.warn('[SSE Parse Notice]', err);
+        }
+      };
+
+      eventSource.onerror = () => {
+        if (onStatusChange) onStatusChange(false);
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+        // Auto-reconnect after 3 seconds
+        if (!isClosed) {
+          retryTimeout = setTimeout(connect, 3000);
+        }
+      };
+    } catch (err) {
+      if (onStatusChange) onStatusChange(false);
+      if (!isClosed) {
+        retryTimeout = setTimeout(connect, 4000);
+      }
+    }
+  };
+
+  connect();
+
+  return () => {
+    isClosed = true;
+    if (retryTimeout) clearTimeout(retryTimeout);
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+  };
 }
 
 /**
@@ -65,6 +142,75 @@ export async function syncDatabaseToServer(
     return { success: false, message: err.message || 'Gagal terhubung ke server' };
   }
   return { success: false, message: 'Gagal menyimpan ke server' };
+}
+
+/**
+ * Direct API to update/import students on server
+ */
+export async function saveSiswaToServer(
+  siswaList: Siswa[],
+  deletedSiswaList?: Siswa[],
+  action: string = 'update_siswa'
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const res = await fetch('/api/siswa', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siswaList, deletedSiswaList, action })
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err: any) {
+    console.warn('Failed to save siswa to server:', err);
+  }
+  return { success: false, message: 'Gagal menyimpan data murid ke server' };
+}
+
+/**
+ * Direct API to save new aduan on server
+ */
+export async function saveAduanToServer(
+  aduan: Aduan
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const res = await fetch('/api/aduan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ aduan })
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err: any) {
+    console.warn('Failed to save aduan to server:', err);
+  }
+  return { success: false, message: 'Gagal menyimpan aduan ke server' };
+}
+
+/**
+ * Direct API to update tindak lanjut aduan on server
+ */
+export async function updateAduanStatusToServer(
+  id: string,
+  status: StatusAduan,
+  keterangan: string,
+  olehWaliKelas: string,
+  timestamp?: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const res = await fetch(`/api/aduan/${id}/tindaklanjut`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, keterangan, olehWaliKelas, timestamp })
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err: any) {
+    console.warn('Failed to update aduan status on server:', err);
+  }
+  return { success: false, message: 'Gagal memperbarui status di server' };
 }
 
 /**

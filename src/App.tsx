@@ -71,6 +71,7 @@ import {
 import {
   fetchServerDatabase,
   syncDatabaseToServer,
+  subscribeToRealTimeEvents,
   FullDatabasePayload
 } from './services/apiSync';
 import { cachePhoto } from './utils/photoCache';
@@ -81,7 +82,8 @@ import {
   ListFilter,
   Sparkles,
   Info,
-  GraduationCap
+  GraduationCap,
+  Radio
 } from 'lucide-react';
 
 export default function App() {
@@ -94,6 +96,10 @@ export default function App() {
   const [aduanList, setAduanList] = useState<Aduan[]>(getStoredAduan);
   const [deletedAduanList, setDeletedAduanList] = useState<Aduan[]>(getStoredDeletedAduan);
 
+  // Real-time connection status
+  const [isLiveConnected, setIsLiveConnected] = useState<boolean>(false);
+  const [connectedClientsCount, setConnectedClientsCount] = useState<number>(1);
+
   // User session state
   const [session, setSession] = useState<UserSession>({ role: 'guest' });
 
@@ -102,6 +108,44 @@ export default function App() {
 
   // Active sub menu state: 'form' | 'pantau' | 'statistik' | 'dashboard'
   const [activeSubMenu, setActiveSubMenu] = useState<SubMenuType>('form');
+
+  // Central helper to apply server database snapshot to state and local storage
+  const applyServerDatabaseSnapshot = (sDb: Partial<FullDatabasePayload>) => {
+    if (!sDb) return;
+    if (sDb.siswaList) {
+      setSiswaList(sDb.siswaList);
+      saveSiswa(sDb.siswaList);
+    }
+    if (sDb.guruList) {
+      setGuruList(sDb.guruList);
+      saveGuru(sDb.guruList);
+    }
+    if (sDb.mapelList) {
+      setMapelList(sDb.mapelList);
+      saveMapel(sDb.mapelList);
+    }
+    if (sDb.kelasList) {
+      setKelasList(sDb.kelasList);
+      saveKelas(sDb.kelasList);
+    }
+    if (sDb.waliKelasList) {
+      setWaliKelasList(sDb.waliKelasList);
+      saveWaliKelas(sDb.waliKelasList);
+    }
+    if (sDb.aduanList) {
+      setAduanList(sDb.aduanList);
+      saveAduan(sDb.aduanList);
+    }
+    if (sDb.deletedAduanList) {
+      setDeletedAduanList(sDb.deletedAduanList);
+      saveDeletedAduan(sDb.deletedAduanList);
+    }
+    if (sDb.deletedGuruList) saveDeletedGuru(sDb.deletedGuruList);
+    if (sDb.deletedMapelList) saveDeletedMapel(sDb.deletedMapelList);
+    if (sDb.deletedKelasList) saveDeletedKelas(sDb.deletedKelasList);
+    if (sDb.deletedSiswaList) saveDeletedSiswa(sDb.deletedSiswaList);
+    if (sDb.deletedWaliKelasList) saveDeletedWaliKelas(sDb.deletedWaliKelasList);
+  };
 
   // Central helper to construct current full database payload and sync to backend server
   const broadcastToServer = (overrides?: Partial<FullDatabasePayload>) => {
@@ -126,46 +170,33 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
 
+    // 1. Subscribe to SSE real-time events (instant instant push for all connected devices)
+    const unsubscribeSSE = subscribeToRealTimeEvents(
+      (payload) => {
+        if (!isMounted) return;
+        if (payload.db) {
+          applyServerDatabaseSnapshot(payload.db);
+        }
+        if (payload.config) {
+          if (payload.config.spreadsheetId) saveSpreadsheetId(payload.config.spreadsheetId);
+          if (payload.config.driveFolderId) saveDriveFolderId(payload.config.driveFolderId);
+          if (payload.config.webAppUrl) saveWebAppUrl(payload.config.webAppUrl);
+        }
+      },
+      (connected, clientCount) => {
+        if (!isMounted) return;
+        setIsLiveConnected(connected);
+        if (clientCount !== undefined) setConnectedClientsCount(clientCount);
+      }
+    );
+
     const pullLatestData = async () => {
       try {
-        // 1. Pull from server database (instant multi-device sync across HP, Desktop, Tablet)
+        // Pull from server database (instant multi-device sync across HP, Desktop, Tablet)
         const serverRes = await fetchServerDatabase();
         if (serverRes && isMounted) {
           if (serverRes.hasData && serverRes.db) {
-            const sDb = serverRes.db;
-            if (sDb.siswaList && sDb.siswaList.length > 0) {
-              setSiswaList(sDb.siswaList);
-              saveSiswa(sDb.siswaList);
-            }
-            if (sDb.guruList && sDb.guruList.length > 0) {
-              setGuruList(sDb.guruList);
-              saveGuru(sDb.guruList);
-            }
-            if (sDb.mapelList && sDb.mapelList.length > 0) {
-              setMapelList(sDb.mapelList);
-              saveMapel(sDb.mapelList);
-            }
-            if (sDb.kelasList && sDb.kelasList.length > 0) {
-              setKelasList(sDb.kelasList);
-              saveKelas(sDb.kelasList);
-            }
-            if (sDb.waliKelasList && sDb.waliKelasList.length > 0) {
-              setWaliKelasList(sDb.waliKelasList);
-              saveWaliKelas(sDb.waliKelasList);
-            }
-            if (sDb.aduanList) {
-              setAduanList(sDb.aduanList);
-              saveAduan(sDb.aduanList);
-            }
-            if (sDb.deletedAduanList) {
-              setDeletedAduanList(sDb.deletedAduanList);
-              saveDeletedAduan(sDb.deletedAduanList);
-            }
-            if (sDb.deletedGuruList) saveDeletedGuru(sDb.deletedGuruList);
-            if (sDb.deletedMapelList) saveDeletedMapel(sDb.deletedMapelList);
-            if (sDb.deletedKelasList) saveDeletedKelas(sDb.deletedKelasList);
-            if (sDb.deletedSiswaList) saveDeletedSiswa(sDb.deletedSiswaList);
-            if (sDb.deletedWaliKelasList) saveDeletedWaliKelas(sDb.deletedWaliKelasList);
+            applyServerDatabaseSnapshot(serverRes.db);
           } else {
             // First time server initialization: populate server with local state
             broadcastToServer();
@@ -178,7 +209,7 @@ export default function App() {
           }
         }
 
-        // 2. Fallback check from Google Sheets GViz if available
+        // Fallback check from Google Sheets GViz if available
         const cloud = await fetchCloudData();
         if (cloud.success && cloud.data && isMounted) {
           if (cloud.data.siswaList && cloud.data.siswaList.length > 0) {
@@ -191,22 +222,23 @@ export default function App() {
       }
     };
 
-    // 1. Initial pull on load
+    // Initial pull on load
     pullLatestData();
 
-    // 2. Pull when user switches back to this tab / unlocks phone
+    // Pull when user switches back to this tab / unlocks phone
     const handleWindowFocus = () => {
       pullLatestData();
     };
     window.addEventListener('focus', handleWindowFocus);
 
-    // 3. Periodic background sync polling every 4 seconds for instant real-time sync
+    // Periodic heartbeat poll every 10 seconds as safety net
     const intervalTimer = setInterval(() => {
       pullLatestData();
-    }, 4000);
+    }, 10000);
 
     return () => {
       isMounted = false;
+      unsubscribeSSE();
       window.removeEventListener('focus', handleWindowFocus);
       clearInterval(intervalTimer);
     };
@@ -471,6 +503,8 @@ export default function App() {
         onSelectSubMenu={(menu) => setActiveSubMenu(menu)}
         onOpenWaliKelasLogin={() => setIsWaliKelasLoginOpen(true)}
         onLogout={handleLogout}
+        isLiveConnected={isLiveConnected}
+        connectedClientsCount={connectedClientsCount}
       />
 
       {/* Role Banner for Logged-In Users */}
