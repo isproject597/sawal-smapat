@@ -38,6 +38,11 @@ import {
   triggerBackgroundAutoSync,
   getGoogleAppsScriptCode
 } from '../services/googleSheets';
+import {
+  saveServerConfig,
+  testServerGoogleSheetsConnection,
+  forcePushToGoogleSheets
+} from '../services/apiSync';
 import { Aduan, AccountWaliKelas, Siswa, Guru, Mapel, Kelas } from '../types';
 
 interface GoogleSheetsSyncBannerProps {
@@ -103,6 +108,7 @@ export const GoogleSheetsSyncBanner: React.FC<GoogleSheetsSyncBannerProps> = ({
     if (spreadsheetIdInput.trim()) {
       const savedId = saveSpreadsheetId(spreadsheetIdInput);
       setSpreadsheetIdInput(savedId);
+      saveServerConfig({ spreadsheetId: savedId }).catch(() => {});
       setSyncStatus({
         type: 'success',
         message: `Google Spreadsheet ID diperbarui: ${savedId}`
@@ -115,6 +121,7 @@ export const GoogleSheetsSyncBanner: React.FC<GoogleSheetsSyncBannerProps> = ({
     if (driveFolderIdInput.trim()) {
       const savedFolder = saveDriveFolderId(driveFolderIdInput);
       setDriveFolderIdInput(savedFolder);
+      saveServerConfig({ driveFolderId: savedFolder }).catch(() => {});
       setSyncStatus({
         type: 'success',
         message: `Google Drive Folder ID diperbarui: ${savedFolder}`
@@ -125,14 +132,53 @@ export const GoogleSheetsSyncBanner: React.FC<GoogleSheetsSyncBannerProps> = ({
   const handleSaveWebAppUrl = () => {
     const savedUrl = saveWebAppUrl(webAppUrlInput);
     setWebAppUrlInput(savedUrl);
+    saveServerConfig({ webAppUrl: savedUrl }).catch(() => {});
     setSyncStatus({
       type: 'success',
       message: savedUrl
-        ? 'Google Apps Script Web App URL berhasil disimpan! Semua perubahan data kini otomatis tersinkron.'
+        ? 'Google Apps Script Web App URL berhasil disimpan! Semua perubahan data kini otomatis tersinkron ke semua perangkat & Google Sheets.'
         : 'Google Apps Script Web App URL dikosongkan.'
     });
     if (savedUrl) {
       triggerBackgroundAutoSync('all');
+    }
+  };
+
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const handleTestWebAppConnection = async () => {
+    const urlToTest = webAppUrlInput.trim() || getStoredWebAppUrl();
+    if (!urlToTest) {
+      setSyncStatus({
+        type: 'error',
+        message: 'Masukkan URL Web App Google Apps Script terlebih dahulu untuk diuji.'
+      });
+      return;
+    }
+    setIsTestingConnection(true);
+    setSyncStatus({
+      type: 'idle',
+      message: 'Menguji koneksi ke Google Apps Script Web App...'
+    });
+    try {
+      const res = await testServerGoogleSheetsConnection(urlToTest);
+      if (res.success) {
+        setSyncStatus({
+          type: 'success',
+          message: 'Koneksi Berhasil! Google Apps Script Web App aktif dan merespon dengan baik.'
+        });
+      } else {
+        setSyncStatus({
+          type: 'error',
+          message: res.message || 'Koneksi gagal atau URL Apps Script belum di-deploy dengan akses Anyone.'
+        });
+      }
+    } catch (err: any) {
+      setSyncStatus({
+        type: 'error',
+        message: 'Gagal menguji koneksi: ' + (err.message || 'Network error')
+      });
+    } finally {
+      setIsTestingConnection(false);
     }
   };
 
@@ -174,18 +220,46 @@ export const GoogleSheetsSyncBanner: React.FC<GoogleSheetsSyncBannerProps> = ({
 
   const handleConnectAndSync = async () => {
     setIsSyncing(true);
-    setSyncStatus({ type: 'idle', message: 'Menghubungkan OAuth Google Sheets...' });
+    setSyncStatus({ type: 'idle', message: 'Menyinkronkan data ke Google Sheets...' });
 
     try {
+      const currentWebApp = getStoredWebAppUrl();
       let activeToken = token;
       const currentClientId = getStoredClientId();
+
+      // If Web App is configured, perform complete Web App sync + Server push
+      if (currentWebApp) {
+        triggerBackgroundAutoSync('all', {
+          aduanList,
+          waliKelasList,
+          siswaList: muridList,
+          guruList,
+          mapelList,
+          kelasList
+        });
+        await forcePushToGoogleSheets();
+        const now = new Date();
+        const formattedTime =
+          now.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }) +
+          ', ' +
+          now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) +
+          ' WIB';
+        setLastAutoSyncTime(formattedTime);
+
+        setSyncStatus({
+          type: 'success',
+          message: 'Data berhasil disinkronkan ke Google Sheets via Web App & Server Hub!'
+        });
+        if (onSyncComplete) onSyncComplete('Sinkronisasi Google Sheets Berhasil!');
+        return;
+      }
 
       if (!activeToken) {
         if (!currentClientId) {
           setShowConfigModal(true);
           setSyncStatus({
             type: 'error',
-            message: 'Silakan isi Google OAuth Client ID terlebih dahulu di menu Pengaturan Koneksi.'
+            message: 'Silakan isi URL Google Apps Script Web App atau Google OAuth Client ID terlebih dahulu di menu Pengaturan.'
           });
           setIsSyncing(false);
           return;
@@ -229,7 +303,7 @@ export const GoogleSheetsSyncBanner: React.FC<GoogleSheetsSyncBannerProps> = ({
         });
       }
     } catch (err: any) {
-      const errMsg = err.message || 'Gagal otorisasi Google OAuth.';
+      const errMsg = err.message || 'Gagal sinkronisasi Google Sheets.';
       if (errMsg.includes('invalid_client') || errMsg.includes('Client ID')) {
         setShowConfigModal(true);
       }
@@ -479,15 +553,28 @@ export const GoogleSheetsSyncBanner: React.FC<GoogleSheetsSyncBannerProps> = ({
               className="w-full bg-slate-900/90 text-emerald-200 placeholder-slate-500 border border-emerald-600/60 focus:border-emerald-400 rounded-lg px-3 py-2 text-xs font-mono outline-none shadow-inner transition-colors"
             />
           </div>
-          <button
-            type="button"
-            id="btn-simpan-web-app-url"
-            onClick={handleSaveWebAppUrl}
-            className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-md transition-all shrink-0 active:scale-95"
-          >
-            <Check className="w-3.5 h-3.5" />
-            <span>Simpan URL Web App</span>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              id="btn-uji-web-app-url"
+              onClick={handleTestWebAppConnection}
+              disabled={isTestingConnection}
+              className="px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95 disabled:opacity-50"
+              title="Uji koneksi Web App Google Apps Script"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isTestingConnection ? 'animate-spin' : ''}`} />
+              <span>{isTestingConnection ? 'Menguji...' : 'Uji Koneksi'}</span>
+            </button>
+            <button
+              type="button"
+              id="btn-simpan-web-app-url"
+              onClick={handleSaveWebAppUrl}
+              className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-md transition-all shrink-0 active:scale-95"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Simpan URL</span>
+            </button>
+          </div>
         </div>
 
         <p className="text-[11px] text-slate-300 leading-normal">

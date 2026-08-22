@@ -7,14 +7,24 @@ import React, { useState, useEffect } from 'react';
 import {
   getStoredGuru,
   saveGuru,
+  getStoredDeletedGuru,
+  saveDeletedGuru,
   getStoredMapel,
   saveMapel,
+  getStoredDeletedMapel,
+  saveDeletedMapel,
   getStoredKelas,
   saveKelas,
+  getStoredDeletedKelas,
+  saveDeletedKelas,
   getStoredSiswa,
   saveSiswa,
+  getStoredDeletedSiswa,
+  saveDeletedSiswa,
   getStoredWaliKelas,
   saveWaliKelas,
+  getStoredDeletedWaliKelas,
+  saveDeletedWaliKelas,
   getStoredAduan,
   saveAduan,
   addAduan,
@@ -53,8 +63,16 @@ import {
   uploadPhotosToGoogleDrive,
   triggerBackgroundAutoSync,
   fetchCloudData,
+  saveSpreadsheetId,
+  saveDriveFolderId,
+  saveWebAppUrl,
   DRIVE_FOLDER_URL
 } from './services/googleSheets';
+import {
+  fetchServerDatabase,
+  syncDatabaseToServer,
+  FullDatabasePayload
+} from './services/apiSync';
 import { cachePhoto } from './utils/photoCache';
 import {
   ShieldAlert,
@@ -85,57 +103,107 @@ export default function App() {
   // Active sub menu state: 'form' | 'pantau' | 'statistik' | 'dashboard'
   const [activeSubMenu, setActiveSubMenu] = useState<SubMenuType>('form');
 
-  // Real-time Cloud Synchronization (Multi-Device: HP, Desktop, Tablet)
+  // Central helper to construct current full database payload and sync to backend server
+  const broadcastToServer = (overrides?: Partial<FullDatabasePayload>) => {
+    const payload: FullDatabasePayload = {
+      aduanList: overrides?.aduanList ?? aduanList,
+      deletedAduanList: overrides?.deletedAduanList ?? deletedAduanList,
+      guruList: overrides?.guruList ?? guruList,
+      deletedGuruList: overrides?.deletedGuruList ?? getStoredDeletedGuru(),
+      mapelList: overrides?.mapelList ?? mapelList,
+      deletedMapelList: overrides?.deletedMapelList ?? getStoredDeletedMapel(),
+      kelasList: overrides?.kelasList ?? kelasList,
+      deletedKelasList: overrides?.deletedKelasList ?? getStoredDeletedKelas(),
+      siswaList: overrides?.siswaList ?? siswaList,
+      deletedSiswaList: overrides?.deletedSiswaList ?? getStoredDeletedSiswa(),
+      waliKelasList: overrides?.waliKelasList ?? waliKelasList,
+      deletedWaliKelasList: overrides?.deletedWaliKelasList ?? getStoredDeletedWaliKelas()
+    };
+    syncDatabaseToServer(payload).catch((err) => console.warn('Sync to server notice:', err));
+  };
+
+  // Real-time Multi-Device Synchronization (Desktop, HP, Tablet, Google Sheets)
   useEffect(() => {
     let isMounted = true;
 
-    const pullLatestCloudData = async () => {
+    const pullLatestData = async () => {
       try {
+        // 1. Pull from server database (instant multi-device sync across HP, Desktop, Tablet)
+        const serverRes = await fetchServerDatabase();
+        if (serverRes && isMounted) {
+          if (serverRes.hasData && serverRes.db) {
+            const sDb = serverRes.db;
+            if (sDb.siswaList && sDb.siswaList.length > 0) {
+              setSiswaList(sDb.siswaList);
+              saveSiswa(sDb.siswaList);
+            }
+            if (sDb.guruList && sDb.guruList.length > 0) {
+              setGuruList(sDb.guruList);
+              saveGuru(sDb.guruList);
+            }
+            if (sDb.mapelList && sDb.mapelList.length > 0) {
+              setMapelList(sDb.mapelList);
+              saveMapel(sDb.mapelList);
+            }
+            if (sDb.kelasList && sDb.kelasList.length > 0) {
+              setKelasList(sDb.kelasList);
+              saveKelas(sDb.kelasList);
+            }
+            if (sDb.waliKelasList && sDb.waliKelasList.length > 0) {
+              setWaliKelasList(sDb.waliKelasList);
+              saveWaliKelas(sDb.waliKelasList);
+            }
+            if (sDb.aduanList) {
+              setAduanList(sDb.aduanList);
+              saveAduan(sDb.aduanList);
+            }
+            if (sDb.deletedAduanList) {
+              setDeletedAduanList(sDb.deletedAduanList);
+              saveDeletedAduan(sDb.deletedAduanList);
+            }
+            if (sDb.deletedGuruList) saveDeletedGuru(sDb.deletedGuruList);
+            if (sDb.deletedMapelList) saveDeletedMapel(sDb.deletedMapelList);
+            if (sDb.deletedKelasList) saveDeletedKelas(sDb.deletedKelasList);
+            if (sDb.deletedSiswaList) saveDeletedSiswa(sDb.deletedSiswaList);
+            if (sDb.deletedWaliKelasList) saveDeletedWaliKelas(sDb.deletedWaliKelasList);
+          } else {
+            // First time server initialization: populate server with local state
+            broadcastToServer();
+          }
+
+          if (serverRes.config) {
+            if (serverRes.config.spreadsheetId) saveSpreadsheetId(serverRes.config.spreadsheetId);
+            if (serverRes.config.driveFolderId) saveDriveFolderId(serverRes.config.driveFolderId);
+            if (serverRes.config.webAppUrl) saveWebAppUrl(serverRes.config.webAppUrl);
+          }
+        }
+
+        // 2. Fallback check from Google Sheets GViz if available
         const cloud = await fetchCloudData();
         if (cloud.success && cloud.data && isMounted) {
           if (cloud.data.siswaList && cloud.data.siswaList.length > 0) {
             setSiswaList(cloud.data.siswaList);
             saveSiswa(cloud.data.siswaList);
           }
-          if (cloud.data.guruList && cloud.data.guruList.length > 0) {
-            setGuruList(cloud.data.guruList);
-            saveGuru(cloud.data.guruList);
-          }
-          if (cloud.data.mapelList && cloud.data.mapelList.length > 0) {
-            setMapelList(cloud.data.mapelList);
-            saveMapel(cloud.data.mapelList);
-          }
-          if (cloud.data.kelasList && cloud.data.kelasList.length > 0) {
-            setKelasList(cloud.data.kelasList);
-            saveKelas(cloud.data.kelasList);
-          }
-          if (cloud.data.waliKelasList && cloud.data.waliKelasList.length > 0) {
-            setWaliKelasList(cloud.data.waliKelasList);
-            saveWaliKelas(cloud.data.waliKelasList);
-          }
-          if (cloud.data.aduanList && cloud.data.aduanList.length > 0) {
-            setAduanList(cloud.data.aduanList);
-            saveAduan(cloud.data.aduanList);
-          }
         }
       } catch (err) {
-        console.warn('Realtime cloud pull notice:', err);
+        console.warn('Realtime sync notice:', err);
       }
     };
 
     // 1. Initial pull on load
-    pullLatestCloudData();
+    pullLatestData();
 
     // 2. Pull when user switches back to this tab / unlocks phone
     const handleWindowFocus = () => {
-      pullLatestCloudData();
+      pullLatestData();
     };
     window.addEventListener('focus', handleWindowFocus);
 
-    // 3. Periodic background sync polling every 25 seconds
+    // 3. Periodic background sync polling every 4 seconds for instant real-time sync
     const intervalTimer = setInterval(() => {
-      pullLatestCloudData();
-    }, 25000);
+      pullLatestData();
+    }, 4000);
 
     return () => {
       isMounted = false;
@@ -148,36 +216,51 @@ export default function App() {
   const handleUpdateGuru = (list: Guru[], deletedList?: Guru[]) => {
     setGuruList(list);
     saveGuru(list);
+    if (deletedList) saveDeletedGuru(deletedList);
+    broadcastToServer({ guruList: list, deletedGuruList: deletedList });
     triggerBackgroundAutoSync('guru', { guruList: list, deletedGuruList: deletedList });
   };
 
   const handleUpdateMapel = (list: Mapel[], deletedList?: Mapel[]) => {
     setMapelList(list);
     saveMapel(list);
+    if (deletedList) saveDeletedMapel(deletedList);
+    broadcastToServer({ mapelList: list, deletedMapelList: deletedList });
     triggerBackgroundAutoSync('mapel', { mapelList: list, deletedMapelList: deletedList });
   };
 
   const handleUpdateKelas = (list: Kelas[], deletedList?: Kelas[]) => {
     setKelasList(list);
     saveKelas(list);
+    if (deletedList) saveDeletedKelas(deletedList);
+    broadcastToServer({ kelasList: list, deletedKelasList: deletedList });
     triggerBackgroundAutoSync('kelas', { kelasList: list, deletedKelasList: deletedList });
   };
 
   const handleUpdateSiswa = (list: Siswa[], deletedList?: Siswa[]) => {
     setSiswaList(list);
     saveSiswa(list);
+    if (deletedList) saveDeletedSiswa(deletedList);
+    broadcastToServer({ siswaList: list, deletedSiswaList: deletedList });
     triggerBackgroundAutoSync('murid', { siswaList: list, deletedSiswaList: deletedList });
   };
 
   const handleUpdateWaliKelas = (list: AccountWaliKelas[], deletedList?: AccountWaliKelas[]) => {
     setWaliKelasList(list);
     saveWaliKelas(list);
+    if (deletedList) saveDeletedWaliKelas(deletedList);
+    broadcastToServer({ waliKelasList: list, deletedWaliKelasList: deletedList });
     triggerBackgroundAutoSync('walikelas', { waliKelasList: list, deletedWaliKelasList: deletedList });
   };
 
   const handleUpdateAduan = (list: Aduan[], deletedList?: Aduan[]) => {
     setAduanList(list);
     saveAduan(list);
+    if (deletedList) {
+      setDeletedAduanList(deletedList);
+      saveDeletedAduan(deletedList);
+    }
+    broadcastToServer({ aduanList: list, deletedAduanList: deletedList });
     triggerBackgroundAutoSync('aduan', { aduanList: list, deletedAduanList: deletedList });
   };
 
@@ -232,6 +315,7 @@ export default function App() {
 
     const updated = addAduan(fullAduan);
     setAduanList(updated);
+    broadcastToServer({ aduanList: updated });
 
     // Auto-sync single aduan (supports Web App URL and OAuth Token)
     await appendSingleAduanToSheet(fullAduan, token || undefined);
@@ -273,6 +357,7 @@ export default function App() {
 
     setAduanList(updatedList);
     saveAduan(updatedList);
+    broadcastToServer({ aduanList: updatedList });
 
     const token = getStoredSheetsToken();
     await updateAduanStatusInGoogleSheets(
@@ -305,10 +390,12 @@ export default function App() {
       };
       const updatedDel = recordDeletedAduan([deletedItem]);
       setDeletedAduanList(updatedDel);
+      broadcastToServer({ aduanList: updated, deletedAduanList: updatedDel });
 
       const token = getStoredSheetsToken();
       await notifyDeleteAduanToGoogleSheets([deletedItem], updated, token || undefined);
     } else {
+      broadcastToServer({ aduanList: updated });
       const token = getStoredSheetsToken();
       if (token) await syncAduanToGoogleSheet(updated, token);
     }
@@ -334,10 +421,12 @@ export default function App() {
       }));
       const updatedDel = recordDeletedAduan(deletedItems);
       setDeletedAduanList(updatedDel);
+      broadcastToServer({ aduanList: updated, deletedAduanList: updatedDel });
 
       const token = getStoredSheetsToken();
       await notifyDeleteAduanToGoogleSheets(deletedItems, updated, token || undefined);
     } else {
+      broadcastToServer({ aduanList: updated });
       const token = getStoredSheetsToken();
       if (token) await syncAduanToGoogleSheet(updated, token);
     }
@@ -353,6 +442,7 @@ export default function App() {
     const updatedDel = deletedAduanList.filter((d) => !restoredIds.has(d.id));
     setDeletedAduanList(updatedDel);
     saveDeletedAduan(updatedDel);
+    broadcastToServer({ aduanList: updatedActive, deletedAduanList: updatedDel });
 
     const token = getStoredSheetsToken();
     if (token) {
