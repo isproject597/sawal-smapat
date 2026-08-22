@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Users,
   BookOpen,
@@ -8,7 +8,10 @@ import {
   FileSpreadsheet,
   Trash2,
   AlertTriangle,
-  X
+  X,
+  Download,
+  Upload,
+  Database
 } from 'lucide-react';
 import { Guru, Mapel, Kelas, Siswa, AccountWaliKelas, Aduan } from '../types';
 import { GoogleSheetsSyncBanner } from './GoogleSheetsSyncBanner';
@@ -41,6 +44,7 @@ interface AdminDashboardProps {
   onUpdateKelas: (list: Kelas[]) => void;
   onUpdateSiswa: (list: Siswa[]) => void;
   onUpdateWaliKelas: (list: AccountWaliKelas[]) => void;
+  onUpdateAduan?: (list: Aduan[]) => void;
   onDeleteAduan?: (id: string) => void;
   onDeleteMultipleAduan?: (ids: string[]) => void;
   onRestoreAduan?: (restoredItems: Aduan[]) => void;
@@ -59,6 +63,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateKelas,
   onUpdateSiswa,
   onUpdateWaliKelas,
+  onUpdateAduan,
   onDeleteAduan,
   onDeleteMultipleAduan,
   onRestoreAduan,
@@ -76,6 +81,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Global notice toast
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Backup File Input Ref
+  const backupFileInputRef = useRef<HTMLInputElement>(null);
 
   // Excel Bulk Import Modal State
   const [excelModalType, setExcelModalType] = useState<ExcelImportType | null>(null);
@@ -136,8 +144,89 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setTimeout(() => setNotice(null), 6000);
   };
 
+  // Full System Backup Export (JSON)
+  const handleDownloadFullBackup = () => {
+    const backupData = {
+      app: 'SAWAL-SMAN-4-BERAU',
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      guruList,
+      mapelList,
+      kelasList,
+      siswaList,
+      waliKelasList,
+      aduanList
+    };
+
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `sawal-sman4berau-backup-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    setNotice('💾 Berhasil mendownload file cadangan data (.json)! Anda dapat mengunggah file ini ke web GitHub Pages untuk memulihkan seluruh data.');
+    setTimeout(() => setNotice(null), 6000);
+  };
+
+  // Full System Backup Import / Restore (JSON)
+  const handleUploadFullBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        const parsed = JSON.parse(content);
+
+        let restoredCount = 0;
+
+        if (Array.isArray(parsed.guruList) && parsed.guruList.length > 0) {
+          onUpdateGuru(parsed.guruList);
+          restoredCount += parsed.guruList.length;
+        }
+        if (Array.isArray(parsed.mapelList) && parsed.mapelList.length > 0) {
+          onUpdateMapel(parsed.mapelList);
+        }
+        if (Array.isArray(parsed.kelasList) && parsed.kelasList.length > 0) {
+          onUpdateKelas(parsed.kelasList);
+        }
+        if (Array.isArray(parsed.siswaList) && parsed.siswaList.length > 0) {
+          onUpdateSiswa(parsed.siswaList);
+        }
+        if (Array.isArray(parsed.waliKelasList) && parsed.waliKelasList.length > 0) {
+          onUpdateWaliKelas(parsed.waliKelasList);
+        }
+        if (Array.isArray(parsed.aduanList) && parsed.aduanList.length > 0 && onUpdateAduan) {
+          onUpdateAduan(parsed.aduanList);
+        }
+
+        setNotice(`✅ Berhasil memulihkan seluruh data cadangan (${restoredCount} guru, ${parsed.siswaList?.length || 0} murid, ${parsed.aduanList?.length || 0} aduan)!`);
+        setTimeout(() => setNotice(null), 7000);
+      } catch (err: any) {
+        alert('File cadangan (.json) tidak valid atau rusak!');
+      }
+    };
+    reader.readAsText(file);
+    if (e.target) e.target.value = '';
+  };
+
   return (
     <div className="bg-slate-50 border border-slate-300 rounded-xl shadow-2xl p-4 md:p-6 space-y-6">
+      {/* Hidden File Input for JSON Backup */}
+      <input
+        type="file"
+        ref={backupFileInputRef}
+        onChange={handleUploadFullBackup}
+        accept=".json"
+        className="hidden"
+      />
+
       {/* Panel Top Nav Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
@@ -150,12 +239,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={onCloseDashboard}
-          className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all active:scale-95 shadow-xs"
-        >
-          KEMBALI KE HALAMAN UTAMA
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Backup Button */}
+          <button
+            onClick={handleDownloadFullBackup}
+            id="btn-backup-json"
+            title="Download seluruh data guru, murid, aduan dll. dalam satu file cadangan"
+            className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-3 py-2 rounded-lg transition-all active:scale-95 shadow-xs"
+          >
+            <Download className="w-4 h-4" />
+            <span>DOWNLOAD CADANGAN (JSON)</span>
+          </button>
+
+          {/* Restore Button */}
+          <button
+            onClick={() => backupFileInputRef.current?.click()}
+            id="btn-restore-json"
+            title="Pulihkan seluruh data dari file .json cadangan"
+            className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold px-3 py-2 rounded-lg transition-all active:scale-95 shadow-xs"
+          >
+            <Upload className="w-4 h-4" />
+            <span>PULIHKAN DATA (JSON)</span>
+          </button>
+
+          <button
+            onClick={onCloseDashboard}
+            className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all active:scale-95 shadow-xs"
+          >
+            KEMBALI KE BERANDA
+          </button>
+        </div>
       </div>
 
       {/* Google Sheets Sync Control Banner */}

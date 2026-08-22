@@ -115,6 +115,12 @@ export default function App() {
     triggerBackgroundAutoSync('walikelas', { waliKelasList: list });
   };
 
+  const handleUpdateAduan = (list: Aduan[]) => {
+    setAduanList(list);
+    saveAduan(list);
+    triggerBackgroundAutoSync('aduan', { aduanList: list });
+  };
+
   // Submit new aduan from public form
   const handleCreateAduan = async (newAduanData: Omit<Aduan, 'id' | 'createdAtISO' | 'status'>) => {
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -343,6 +349,7 @@ export default function App() {
             onUpdateKelas={handleUpdateKelas}
             onUpdateSiswa={handleUpdateSiswa}
             onUpdateWaliKelas={handleUpdateWaliKelas}
+            onUpdateAduan={handleUpdateAduan}
             onDeleteAduan={handleDeleteAduan}
             onDeleteMultipleAduan={handleDeleteMultipleAduan}
             onRestoreAduan={handleRestoreAduan}
