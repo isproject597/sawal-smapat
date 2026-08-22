@@ -63,6 +63,7 @@ import {
   uploadPhotosToGoogleDrive,
   triggerBackgroundAutoSync,
   fetchCloudData,
+  getStoredSpreadsheetId,
   saveSpreadsheetId,
   saveDriveFolderId,
   saveWebAppUrl,
@@ -192,14 +193,16 @@ export default function App() {
 
     const pullLatestData = async () => {
       try {
-        // Pull from server database (instant multi-device sync across HP, Desktop, Tablet)
+        let gotData = false;
+
+        // 1. Pull from server database if available (for Node.js / Docker full-stack environment)
         const serverRes = await fetchServerDatabase();
-        if (serverRes && isMounted) {
-          if (serverRes.hasData && serverRes.db) {
-            applyServerDatabaseSnapshot(serverRes.db);
-          } else {
-            // First time server initialization: populate server with local state
-            broadcastToServer();
+        if (serverRes && isMounted && serverRes.hasData && serverRes.db) {
+          applyServerDatabaseSnapshot(serverRes.db);
+          gotData = true;
+          setIsLiveConnected(true);
+          if (serverRes.connectedClients !== undefined) {
+            setConnectedClientsCount(serverRes.connectedClients);
           }
 
           if (serverRes.config) {
@@ -209,12 +212,17 @@ export default function App() {
           }
         }
 
-        // Fallback check from Google Sheets GViz if available
+        // 2. Fetch full multi-tab data from Google Cloud Sheets / Apps Script (for GitHub Pages & Multi-Device Sync)
         const cloud = await fetchCloudData();
         if (cloud.success && cloud.data && isMounted) {
-          if (cloud.data.siswaList && cloud.data.siswaList.length > 0) {
-            setSiswaList(cloud.data.siswaList);
-            saveSiswa(cloud.data.siswaList);
+          applyServerDatabaseSnapshot(cloud.data);
+          gotData = true;
+          setIsLiveConnected(true);
+        } else if (!gotData && !isLiveConnected) {
+          // Check if spreadsheet ID is valid
+          const spId = getStoredSpreadsheetId();
+          if (spId) {
+            setIsLiveConnected(true);
           }
         }
       } catch (err) {
@@ -230,11 +238,14 @@ export default function App() {
       pullLatestData();
     };
     window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') pullLatestData();
+    });
 
-    // Periodic heartbeat poll every 10 seconds as safety net
+    // Fast periodic background sync polling (3.5 seconds for instant multi-device responsiveness on GitHub Pages)
     const intervalTimer = setInterval(() => {
       pullLatestData();
-    }, 10000);
+    }, 3500);
 
     return () => {
       isMounted = false;

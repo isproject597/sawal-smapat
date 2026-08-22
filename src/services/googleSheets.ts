@@ -2330,62 +2330,270 @@ export async function fetchCloudData(): Promise<CloudFetchResult> {
     }
   }
 
-  // 2. Fallback: Try Public GViz query if spreadsheet is shared publicly
+  // 2. Fallback: Try Public GViz query for ALL tabs if spreadsheet is shared publicly
   try {
-    const gvizMuridUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&sheet=Data_Murid`;
-    const gvizRes = await fetch(gvizMuridUrl);
-    if (gvizRes.ok) {
-      const text = await gvizRes.text();
-      const match = text.match(/google\.visualization\.Query\.setResponse\((.*)\);/);
-      if (match && match[1]) {
-        const gvizJson = JSON.parse(match[1]);
-        if (gvizJson.table && Array.isArray(gvizJson.table.rows)) {
-          const activeSiswa: Siswa[] = [];
-          const deletedSiswa: Siswa[] = [];
-
-          gvizJson.table.rows.forEach((r: any, idx: number) => {
-            const c = r.c || [];
-            const id = c[0]?.v ? String(c[0].v).trim() : `murid_${idx + 1}`;
-            const nis = c[1]?.v ? String(c[1].v).trim() : '';
-            const nama = c[2]?.v ? String(c[2].v).trim() : '';
-            const kelas = c[3]?.v ? String(c[3].v).trim() : '';
-            const status = c[4]?.v ? String(c[4].v).trim() : 'AKTIF';
-            const history = c[5]?.v ? String(c[5].v).trim() : '-';
-
-            if (!nama) return;
-            const isDeleted = status.toUpperCase().includes('HAPUS');
-            const isEdited = status.toUpperCase().includes('EDIT');
-
-            const item: Siswa = {
-              id,
-              nama,
-              nis,
-              kelas,
-              isEdited,
-              isDeleted,
-              editHistory: history !== '-' ? history : undefined
-            };
-
-            if (isDeleted) deletedSiswa.push(item);
-            else activeSiswa.push(item);
-          });
-
-          if (activeSiswa.length > 0 || deletedSiswa.length > 0) {
-            return {
-              success: true,
-              source: 'gviz',
-              message: `Berhasil memuat ${activeSiswa.length} data murid via Google Sheets GViz.`,
-              data: {
-                siswaList: activeSiswa,
-                deletedSiswaList: deletedSiswa
-              }
-            };
-          }
+    const fetchTabViaGviz = async (tabName: string) => {
+      try {
+        const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(tabName)}`;
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const text = await res.text();
+        const match = text.match(/google\.visualization\.Query\.setResponse\((.*)\);/);
+        if (match && match[1]) {
+          return JSON.parse(match[1]);
         }
+      } catch {
+        return null;
+      }
+      return null;
+    };
+
+    const [gvizMurid, gvizGuru, gvizMapel, gvizKelas, gvizWaliKelas, gvizAduan] = await Promise.all([
+      fetchTabViaGviz('Data_Murid'),
+      fetchTabViaGviz('Data_Guru'),
+      fetchTabViaGviz('Data_Mapel'),
+      fetchTabViaGviz('Data_Kelas'),
+      fetchTabViaGviz('Data_WaliKelas'),
+      fetchTabViaGviz('Aduan')
+    ]);
+
+    const parsedData: CloudFetchResult['data'] = {};
+    let hasAnyData = false;
+
+    // Parse Data_Murid from GViz
+    if (gvizMurid?.table?.rows && Array.isArray(gvizMurid.table.rows)) {
+      const activeSiswa: Siswa[] = [];
+      const deletedSiswa: Siswa[] = [];
+      gvizMurid.table.rows.forEach((r: any, idx: number) => {
+        const c = r.c || [];
+        const id = c[0]?.v ? String(c[0].v).trim() : `murid_${idx + 1}`;
+        const nis = c[1]?.v ? String(c[1].v).trim() : '';
+        const nama = c[2]?.v ? String(c[2].v).trim() : '';
+        const kelas = c[3]?.v ? String(c[3].v).trim() : '';
+        const status = c[4]?.v ? String(c[4].v).trim() : 'AKTIF';
+        const history = c[5]?.v ? String(c[5].v).trim() : '-';
+
+        if (!nama) return;
+        const isDeleted = status.toUpperCase().includes('HAPUS');
+        const isEdited = status.toUpperCase().includes('EDIT');
+
+        const item: Siswa = {
+          id,
+          nama,
+          nis,
+          kelas,
+          isEdited,
+          isDeleted,
+          editHistory: history !== '-' ? history : undefined
+        };
+        if (isDeleted) deletedSiswa.push(item);
+        else activeSiswa.push(item);
+      });
+      if (activeSiswa.length > 0 || deletedSiswa.length > 0) {
+        parsedData.siswaList = activeSiswa;
+        parsedData.deletedSiswaList = deletedSiswa;
+        hasAnyData = true;
       }
     }
+
+    // Parse Data_Guru from GViz
+    if (gvizGuru?.table?.rows && Array.isArray(gvizGuru.table.rows)) {
+      const activeGuru: Guru[] = [];
+      const deletedGuru: Guru[] = [];
+      gvizGuru.table.rows.forEach((r: any, idx: number) => {
+        const c = r.c || [];
+        const id = c[0]?.v ? String(c[0].v).trim() : `guru_${idx + 1}`;
+        const nama = c[1]?.v ? String(c[1].v).trim() : '';
+        const nip = c[2]?.v ? String(c[2].v).trim() : '-';
+        const mapelUtama = c[3]?.v ? String(c[3].v).trim() : '-';
+        const status = c[4]?.v ? String(c[4].v).trim() : 'AKTIF';
+        const history = c[5]?.v ? String(c[5].v).trim() : '-';
+
+        if (!nama) return;
+        const isDeleted = status.toUpperCase().includes('HAPUS');
+        const isEdited = status.toUpperCase().includes('EDIT');
+
+        const item: Guru = {
+          id,
+          nama,
+          nip,
+          mapelUtama,
+          isEdited,
+          isDeleted,
+          editHistory: history !== '-' ? history : undefined
+        };
+        if (isDeleted) deletedGuru.push(item);
+        else activeGuru.push(item);
+      });
+      if (activeGuru.length > 0 || deletedGuru.length > 0) {
+        parsedData.guruList = activeGuru;
+        parsedData.deletedGuruList = deletedGuru;
+        hasAnyData = true;
+      }
+    }
+
+    // Parse Data_Mapel from GViz
+    if (gvizMapel?.table?.rows && Array.isArray(gvizMapel.table.rows)) {
+      const activeMapel: Mapel[] = [];
+      const deletedMapel: Mapel[] = [];
+      gvizMapel.table.rows.forEach((r: any, idx: number) => {
+        const c = r.c || [];
+        const id = c[0]?.v ? String(c[0].v).trim() : `mapel_${idx + 1}`;
+        const nama = c[1]?.v ? String(c[1].v).trim() : '';
+        const kode = c[2]?.v ? String(c[2].v).trim() : '-';
+        const status = c[3]?.v ? String(c[3].v).trim() : 'AKTIF';
+        const history = c[4]?.v ? String(c[4].v).trim() : '-';
+
+        if (!nama) return;
+        const isDeleted = status.toUpperCase().includes('HAPUS');
+        const isEdited = status.toUpperCase().includes('EDIT');
+
+        const item: Mapel = {
+          id,
+          nama,
+          kode,
+          isEdited,
+          isDeleted,
+          editHistory: history !== '-' ? history : undefined
+        };
+        if (isDeleted) deletedMapel.push(item);
+        else activeMapel.push(item);
+      });
+      if (activeMapel.length > 0 || deletedMapel.length > 0) {
+        parsedData.mapelList = activeMapel;
+        parsedData.deletedMapelList = deletedMapel;
+        hasAnyData = true;
+      }
+    }
+
+    // Parse Data_Kelas from GViz
+    if (gvizKelas?.table?.rows && Array.isArray(gvizKelas.table.rows)) {
+      const activeKelas: Kelas[] = [];
+      const deletedKelas: Kelas[] = [];
+      gvizKelas.table.rows.forEach((r: any, idx: number) => {
+        const c = r.c || [];
+        const id = c[0]?.v ? String(c[0].v).trim() : `kelas_${idx + 1}`;
+        const nama = c[1]?.v ? String(c[1].v).trim() : '';
+        const status = c[2]?.v ? String(c[2].v).trim() : 'AKTIF';
+        const history = c[3]?.v ? String(c[3].v).trim() : '-';
+
+        if (!nama) return;
+        const isDeleted = status.toUpperCase().includes('HAPUS');
+        const isEdited = status.toUpperCase().includes('EDIT');
+
+        const item: Kelas = {
+          id,
+          nama,
+          isEdited,
+          isDeleted,
+          editHistory: history !== '-' ? history : undefined
+        };
+        if (isDeleted) deletedKelas.push(item);
+        else activeKelas.push(item);
+      });
+      if (activeKelas.length > 0 || deletedKelas.length > 0) {
+        parsedData.kelasList = activeKelas;
+        parsedData.deletedKelasList = deletedKelas;
+        hasAnyData = true;
+      }
+    }
+
+    // Parse Data_WaliKelas from GViz
+    if (gvizWaliKelas?.table?.rows && Array.isArray(gvizWaliKelas.table.rows)) {
+      const activeWK: AccountWaliKelas[] = [];
+      const deletedWK: AccountWaliKelas[] = [];
+      gvizWaliKelas.table.rows.forEach((r: any, idx: number) => {
+        const c = r.c || [];
+        const id = c[0]?.v ? String(c[0].v).trim() : `wk_${idx + 1}`;
+        const nama = c[1]?.v ? String(c[1].v).trim() : '';
+        const kelasAssigned = c[2]?.v ? String(c[2].v).trim() : '';
+        const username = c[3]?.v ? String(c[3].v).trim() : '';
+        const password = c[4]?.v ? String(c[4].v).trim() : 'walikelas123';
+        const status = c[5]?.v ? String(c[5].v).trim() : 'AKTIF';
+        const history = c[6]?.v ? String(c[6].v).trim() : '-';
+
+        if (!username) return;
+        const isDeleted = status.toUpperCase().includes('HAPUS');
+        const isEdited = status.toUpperCase().includes('EDIT');
+
+        const item: AccountWaliKelas = {
+          id,
+          nama,
+          kelasAssigned,
+          username,
+          password,
+          isEdited,
+          isDeleted,
+          editHistory: history !== '-' ? history : undefined
+        };
+        if (isDeleted) deletedWK.push(item);
+        else activeWK.push(item);
+      });
+      if (activeWK.length > 0 || deletedWK.length > 0) {
+        parsedData.waliKelasList = activeWK;
+        parsedData.deletedWaliKelasList = deletedWK;
+        hasAnyData = true;
+      }
+    }
+
+    // Parse Aduan from GViz
+    if (gvizAduan?.table?.rows && Array.isArray(gvizAduan.table.rows)) {
+      const activeAduan: Aduan[] = [];
+      const deletedAduan: Aduan[] = [];
+      gvizAduan.table.rows.forEach((r: any, idx: number) => {
+        const c = r.c || [];
+        const id = c[0]?.v ? String(c[0].v).trim() : `aduan_${idx + 1}`;
+        const timestampAduan = c[1]?.v ? String(c[1].v).trim() : '';
+        const namaGuru = c[2]?.v ? String(c[2].v).trim() : '';
+        const mapel = c[3]?.v ? String(c[3].v).trim() : '';
+        const kelas = c[4]?.v ? String(c[4].v).trim() : '';
+        const muridRaw = c[5]?.v ? String(c[5].v).trim() : '';
+        const jenisKesalahan = c[6]?.v ? String(c[6].v).trim() : '';
+        const fotoBukti = c[7]?.v ? String(c[7].v).trim() : '-';
+        const catatanKronologi = c[8]?.v ? String(c[8].v).trim() : '-';
+        const status = (c[9]?.v ? String(c[9].v).trim() : 'Belum Ditindak Lanjuti') as StatusAduan;
+
+        if (!id) return;
+        const isDeleted = status === ('DIHAPUS' as any);
+        const siswaList = muridRaw ? muridRaw.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+        const fotoBuktiList = fotoBukti && fotoBukti !== '-' ? fotoBukti.split('\n').map((f: string) => f.trim()).filter(Boolean) : [];
+
+        const item: Aduan = {
+          id,
+          timestampAduan,
+          createdAtISO: new Date().toISOString(),
+          namaGuru,
+          mapel,
+          kelas,
+          siswaList,
+          jenisKesalahan,
+          fotoBukti,
+          fotoBuktiList,
+          catatanKronologi,
+          status: isDeleted ? 'Belum Ditindak Lanjuti' : status,
+          isDeleted
+        };
+
+        if (isDeleted) deletedAduan.push(item);
+        else activeAduan.push(item);
+      });
+      if (activeAduan.length > 0 || deletedAduan.length > 0) {
+        parsedData.aduanList = activeAduan;
+        parsedData.deletedAduanList = deletedAduan;
+        hasAnyData = true;
+      }
+    }
+
+    if (hasAnyData) {
+      return {
+        success: true,
+        source: 'gviz',
+        message: 'Berhasil memuat data terkini dari Google Sheets GViz.',
+        data: parsedData
+      };
+    }
   } catch (errGViz) {
-    console.warn('GViz fetch fallback error:', errGViz);
+    console.warn('GViz multi-tab fetch fallback error:', errGViz);
   }
 
   return {
