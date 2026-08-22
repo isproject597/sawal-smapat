@@ -88,6 +88,474 @@ export function saveWebAppUrl(url: string): string {
   return cleanUrl;
 }
 
+/**
+ * Returns full Google Apps Script backend code for Web App deployment
+ */
+export function getGoogleAppsScriptCode(): string {
+  const spreadsheetId = getStoredSpreadsheetId();
+  const driveFolderId = getStoredDriveFolderId();
+
+  return `// =========================================================================
+// SCRIPT GOOGLE APPS SCRIPT: SAWAL - SMAN 4 BERAU
+// Database Otomatis & Real-Time Multi-Device (Desktop, HP, Tablet)
+// =========================================================================
+
+function doGet(e) {
+  try {
+    var spreadsheetId = "${spreadsheetId}";
+    var ss = spreadsheetId ? SpreadsheetApp.openById(spreadsheetId) : SpreadsheetApp.getActiveSpreadsheet();
+
+    function readSheetAsJson(sheetName) {
+      var sheet = ss.getSheetByName(sheetName);
+      if (!sheet) return [];
+      var dataRange = sheet.getDataRange();
+      var values = dataRange.getValues();
+      if (values.length <= 1) return [];
+      var headers = values[0];
+      var list = [];
+      for (var r = 1; r < values.length; r++) {
+        var row = values[r];
+        var item = {};
+        for (var c = 0; c < headers.length; c++) {
+          var h = String(headers[c]).trim();
+          item[h] = row[c];
+        }
+        item._row = r + 1;
+        list.push(item);
+      }
+      return list;
+    }
+
+    var result = {
+      status: "online",
+      spreadsheetId: spreadsheetId,
+      timestamp: new Date().toISOString(),
+      aduan: readSheetAsJson("Aduan"),
+      guru: readSheetAsJson("Data_Guru"),
+      mapel: readSheetAsJson("Data_Mapel"),
+      kelas: readSheetAsJson("Data_Kelas"),
+      murid: readSheetAsJson("Data_Murid"),
+      waliKelas: readSheetAsJson("Data_WaliKelas")
+    };
+
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "error",
+      message: err.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var spreadsheetId = (data.spreadsheetId || "${spreadsheetId}").trim();
+    var driveFolderId = (data.driveFolderId || "${driveFolderId}").trim();
+    var ss = spreadsheetId ? SpreadsheetApp.openById(spreadsheetId) : SpreadsheetApp.getActiveSpreadsheet();
+
+    // Helper: Simpan foto Base64 langsung ke Google Drive
+    function saveBase64ToDrive(photoStr, aduanId, index) {
+      if (!photoStr || photoStr === "-") return "-";
+      var str = String(photoStr).trim();
+      if (str.indexOf("http://") === 0 || str.indexOf("https://") === 0) {
+        return str;
+      }
+      if (str.indexOf("data:image") === 0) {
+        try {
+          var parts = str.split(",");
+          if (parts.length < 2) return "-";
+          var mimeMatch = parts[0].match(/:(.*?);/);
+          var mime = mimeMatch ? mimeMatch[1] : "image/jpeg";
+          var cleanBase64 = parts[1].replace(/[\\r\\n\\s]/g, "");
+          var fileBlob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), mime, "Aduan_" + (aduanId || "Foto") + "_foto" + (index + 1) + ".jpg");
+
+          var folder = null;
+          if (driveFolderId && driveFolderId.length > 5 && driveFolderId.indexOf("SAMPLE") === -1) {
+            try {
+              folder = DriveApp.getFolderById(driveFolderId);
+            } catch(eFolder) {
+              folder = null;
+            }
+          }
+
+          var createdFile = folder ? folder.createFile(fileBlob) : DriveApp.createFile(fileBlob);
+          try {
+            createdFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+          } catch(eShare) {}
+
+          return createdFile.getUrl();
+        } catch(errUpload) {
+          return driveFolderId ? "https://drive.google.com/drive/folders/" + driveFolderId : "-";
+        }
+      }
+      return "-";
+    }
+
+    // Helper: Proses list foto menjadi URL Drive
+    function processPhotosList(item) {
+      var photos = [];
+      if (item.fotoBuktiList && Array.isArray(item.fotoBuktiList) && item.fotoBuktiList.length > 0) {
+        photos = item.fotoBuktiList;
+      } else if (item.fotoBukti && item.fotoBukti !== "-") {
+        photos = String(item.fotoBukti).split("\\n");
+      }
+      var links = [];
+      for (var p = 0; p < photos.length; p++) {
+        var savedLink = saveBase64ToDrive(photos[p], item.id || "Foto", p);
+        if (savedLink && savedLink !== "-") {
+          links.push(savedLink);
+        }
+      }
+      return links.length > 0 ? links.join("\\n") : "-";
+    }
+
+    // 1. FITUR SINKRONISASI OTOMATIS SELURUH DATA / TABEL (SYNC ALL)
+    if (data.action === "sync_all" || data.action === "sync_table") {
+      function syncTab(sheetName, headers, activeItems, deletedItems, formatRowFn) {
+        var sheet = ss.getSheetByName(sheetName);
+        if (!sheet) {
+          sheet = ss.insertSheet(sheetName);
+        }
+        sheet.clear();
+
+        var rows = [headers];
+        var activeRowsCount = activeItems ? activeItems.length : 0;
+        var deletedRowsCount = deletedItems ? deletedItems.length : 0;
+
+        if (activeItems) {
+          for (var i = 0; i < activeItems.length; i++) {
+            rows.push(formatRowFn(activeItems[i], false));
+          }
+        }
+        if (deletedItems) {
+          for (var j = 0; j < deletedItems.length; j++) {
+            rows.push(formatRowFn(deletedItems[j], true));
+          }
+        }
+
+        if (rows.length > 0) {
+          sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
+
+          // Header: Dark Teal (#0F766E), Teks Putih Tebal
+          sheet.getRange(1, 1, 1, headers.length)
+            .setBackground("#0F766E")
+            .setFontColor("#FFFFFF")
+            .setFontWeight("bold")
+            .setHorizontalAlignment("center");
+
+          // Format Baris Aktif
+          if (activeRowsCount > 0) {
+            if (sheetName === "Aduan" && activeItems) {
+              for (var a = 0; a < activeItems.length; a++) {
+                var itm = activeItems[a];
+                var rowIdx = 2 + a;
+                if (itm.status === "Dalam Proses") {
+                  sheet.getRange(rowIdx, 1, 1, headers.length)
+                    .setBackground("#FEF9C3")
+                    .setFontColor("#854D0E")
+                    .setFontWeight("bold");
+                } else if (itm.status === "Sudah Ditindak Lanjuti") {
+                  sheet.getRange(rowIdx, 1, 1, headers.length)
+                    .setBackground("#DCFCE7")
+                    .setFontColor("#166534")
+                    .setFontWeight("bold");
+                } else if (itm.isEdited) {
+                  sheet.getRange(rowIdx, 1, 1, headers.length)
+                    .setBackground("#FEF9C3")
+                    .setFontColor("#854D0E")
+                    .setFontWeight("bold");
+                } else {
+                  sheet.getRange(rowIdx, 1, 1, headers.length)
+                    .setBackground("#FFFFFF")
+                    .setFontColor("#1E293B")
+                    .setFontWeight("normal");
+                }
+              }
+            } else if (activeItems) {
+              for (var m = 0; m < activeItems.length; m++) {
+                var mItem = activeItems[m];
+                var mRowIdx = 2 + m;
+                if (mItem && (mItem.isEdited || mItem.status === "DIEDIT")) {
+                  sheet.getRange(mRowIdx, 1, 1, headers.length)
+                    .setBackground("#FEF9C3")
+                    .setFontColor("#854D0E")
+                    .setFontWeight("bold");
+                } else {
+                  sheet.getRange(mRowIdx, 1, 1, headers.length)
+                    .setBackground("#FFFFFF")
+                    .setFontColor("#1E293B")
+                    .setFontWeight("normal");
+                }
+              }
+            }
+          }
+
+          // Format Baris Dihapus: Terblok Merah Muda (#FEE2E2), Teks Merah Gelap Tebal (#991B1B)
+          if (deletedRowsCount > 0) {
+            sheet.getRange(2 + activeRowsCount, 1, deletedRowsCount, headers.length)
+              .setBackground("#FEE2E2")
+              .setFontColor("#991B1B")
+              .setFontWeight("bold");
+          }
+        }
+      }
+
+      // Sync Aduan
+      if (data.aduanList || data.deletedAduanList) {
+        syncTab("Aduan",
+          ["ID Aduan", "Tanggal & Waktu Aduan", "Nama Guru Pelapor", "Mata Pelajaran", "Kelas", "Murid Melanggar", "Jenis Kesalahan", "Bukti Foto / Link Drive", "Catatan / Kronologi", "Status Terbaru", "Riwayat Tindak Lanjut"],
+          data.aduanList, data.deletedAduanList,
+          function(item, isDel) {
+            var hist = item.tindakLanjutHistory ? item.tindakLanjutHistory.map(function(h){ return "[" + h.timestamp + "] (" + h.status + ") - " + h.olehWaliKelas + ": " + h.keterangan; }).join("\\n") : "-";
+            if (isDel) {
+              var delNote = "[" + (item.deletedAt || new Date().toLocaleString("id-ID")) + "] (DIHAPUS) - Dihapus oleh " + (item.deletedBy || "Admin");
+              hist = hist !== "-" ? delNote + "\\n" + hist : delNote;
+            } else if (item.isEdited && item.editHistory) {
+              hist = hist !== "-" ? item.editHistory + "\\n" + hist : item.editHistory;
+            }
+            var fotoCell = processPhotosList(item);
+            return [
+              item.id || "",
+              item.timestampAduan || "",
+              item.namaGuru || "",
+              item.mapel || "",
+              item.kelas || "",
+              Array.isArray(item.siswaList) ? item.siswaList.join(", ") : (item.siswaList || "-"),
+              (item.jenisKesalahan || "") + (item.keteranganLainnya ? " (" + item.keteranganLainnya + ")" : ""),
+              fotoCell,
+              item.catatanKronologi || "-",
+              isDel ? "DIHAPUS" : (item.status || "Belum Ditindak Lanjuti"),
+              hist
+            ];
+          }
+        );
+      }
+
+      // Sync Data_Guru
+      if (data.guruList || data.deletedGuruList) {
+        syncTab("Data_Guru",
+          ["ID", "Nama Lengkap Guru", "NIP", "Mata Pelajaran Utama", "Status", "Riwayat & Keterangan Perubahan"],
+          data.guruList, data.deletedGuruList,
+          function(g, isDel) {
+            var status = isDel ? "DIHAPUS" : (g.isEdited ? "DIEDIT" : "AKTIF");
+            var history = isDel
+              ? ("[" + (g.deletedAt || new Date().toLocaleString("id-ID")) + "] (DIHAPUS) - Dihapus oleh " + (g.deletedBy || "Admin") + (g.editHistory ? "\\n" + g.editHistory : ""))
+              : (g.editHistory || (g.isEdited ? "[" + (g.editedAt || "") + "] DIEDIT oleh " + (g.editedBy || "Admin") : "-"));
+            return [g.id || "", g.nama || "", g.nip || "-", g.mapelUtama || "-", status, history];
+          }
+        );
+      }
+
+      // Sync Data_Mapel
+      if (data.mapelList || data.deletedMapelList) {
+        syncTab("Data_Mapel",
+          ["ID", "Nama Mata Pelajaran", "Kode Mapel", "Status", "Riwayat & Keterangan Perubahan"],
+          data.mapelList, data.deletedMapelList,
+          function(m, isDel) {
+            var status = isDel ? "DIHAPUS" : (m.isEdited ? "DIEDIT" : "AKTIF");
+            var history = isDel
+              ? ("[" + (m.deletedAt || new Date().toLocaleString("id-ID")) + "] (DIHAPUS) - Dihapus oleh " + (m.deletedBy || "Admin") + (m.editHistory ? "\\n" + m.editHistory : ""))
+              : (m.editHistory || (m.isEdited ? "[" + (m.editedAt || "") + "] DIEDIT oleh " + (m.editedBy || "Admin") : "-"));
+            return [m.id || "", m.nama || "", m.kode || "-", status, history];
+          }
+        );
+      }
+
+      // Sync Data_Kelas
+      if (data.kelasList || data.deletedKelasList) {
+        syncTab("Data_Kelas",
+          ["ID", "Nama Kelas / Rombel", "Status", "Riwayat & Keterangan Perubahan"],
+          data.kelasList, data.deletedKelasList,
+          function(k, isDel) {
+            var status = isDel ? "DIHAPUS" : (k.isEdited ? "DIEDIT" : "AKTIF");
+            var history = isDel
+              ? ("[" + (k.deletedAt || new Date().toLocaleString("id-ID")) + "] (DIHAPUS) - Dihapus oleh " + (k.deletedBy || "Admin") + (k.editHistory ? "\\n" + k.editHistory : ""))
+              : (k.editHistory || (k.isEdited ? "[" + (k.editedAt || "") + "] DIEDIT oleh " + (k.editedBy || "Admin") : "-"));
+            return [k.id || "", k.nama || "", status, history];
+          }
+        );
+      }
+
+      // Sync Data_Murid
+      if (data.siswaList || data.deletedSiswaList) {
+        syncTab("Data_Murid",
+          ["ID", "NIS", "Nama Lengkap Murid", "Kelas", "Status", "Riwayat & Keterangan Perubahan"],
+          data.siswaList, data.deletedSiswaList,
+          function(s, isDel) {
+            var status = isDel ? "DIHAPUS" : (s.isEdited ? "DIEDIT" : "AKTIF");
+            var history = isDel
+              ? ("[" + (s.deletedAt || new Date().toLocaleString("id-ID")) + "] (DIHAPUS) - Dihapus oleh " + (s.deletedBy || "Admin") + (s.editHistory ? "\\n" + s.editHistory : ""))
+              : (s.editHistory || (s.isEdited ? "[" + (s.editedAt || "") + "] DIEDIT oleh " + (s.editedBy || "Admin") : "-"));
+            return [s.id || "", s.nis || "-", s.nama || "", s.kelas || "", status, history];
+          }
+        );
+      }
+
+      // Sync Data_WaliKelas
+      if (data.waliKelasList || data.deletedWaliKelasList) {
+        syncTab("Data_WaliKelas",
+          ["ID", "Nama Lengkap Wali Kelas", "Kelas Binaan", "Username Login", "Status", "Riwayat & Keterangan Perubahan"],
+          data.waliKelasList, data.deletedWaliKelasList,
+          function(w, isDel) {
+            var status = isDel ? "DIHAPUS" : (w.isEdited ? "DIEDIT" : "AKTIF");
+            var history = isDel
+              ? ("[" + (w.deletedAt || new Date().toLocaleString("id-ID")) + "] (DIHAPUS) - Dihapus oleh " + (w.deletedBy || "Admin") + (w.editHistory ? "\\n" + w.editHistory : ""))
+              : (w.editHistory || (w.isEdited ? "[" + (w.editedAt || "") + "] DIEDIT oleh " + (w.editedBy || "Admin") : "-"));
+            return [w.id || "", w.nama || "", w.kelasAssigned || "", w.username || "", status, history];
+          }
+        );
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({ result: "success", message: "Sinkronisasi otomatis berhasil!" })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 2. FITUR UPDATE STATUS TINDAK LANJUT
+    if (data.action === "update_status") {
+      var sheetAduanStatus = ss.getSheetByName("Aduan");
+      if (sheetAduanStatus) {
+        var dataRangeStatus = sheetAduanStatus.getDataRange();
+        var valuesStatus = dataRangeStatus.getValues();
+        for (var rowIdx = 1; rowIdx < valuesStatus.length; rowIdx++) {
+          if (String(valuesStatus[rowIdx][0]).trim() === String(data.id).trim()) {
+            var targetRow = rowIdx + 1;
+            sheetAduanStatus.getRange(targetRow, 10).setValue(data.newStatus);
+
+            var existingHistory = valuesStatus[rowIdx][10] ? String(valuesStatus[rowIdx][10]) : "";
+            var logEntry = "[" + (data.timestamp || new Date().toLocaleString("id-ID")) + "] (" + data.newStatus + ") - " + data.olehWaliKelas + ": " + data.keterangan;
+            var combinedHistory = (existingHistory && existingHistory !== "-") ? logEntry + "\\n" + existingHistory : logEntry;
+            sheetAduanStatus.getRange(targetRow, 11).setValue(combinedHistory);
+
+            var rowRangeStyle = sheetAduanStatus.getRange(targetRow, 1, 1, valuesStatus[rowIdx].length);
+            if (data.newStatus === "Dalam Proses") {
+              rowRangeStyle.setBackground("#FEF9C3").setFontColor("#854D0E").setFontWeight("bold");
+            } else if (data.newStatus === "Sudah Ditindak Lanjuti") {
+              rowRangeStyle.setBackground("#DCFCE7").setFontColor("#166534").setFontWeight("bold");
+            } else {
+              rowRangeStyle.setBackground("#FFFFFF").setFontColor("#1E293B").setFontWeight("normal");
+            }
+            break;
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        result: "success",
+        message: "Status tindak lanjut (" + data.newStatus + ") berhasil diperbarui di Google Sheets!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 3. FITUR EDIT MASTER DATA ATAU ADUAN
+    if (data.action === "edit") {
+      var targetSheetName = data.sheetName || "Data_Guru";
+      var sheetEdit = ss.getSheetByName(targetSheetName);
+      if (sheetEdit) {
+        var dataRangeEdit = sheetEdit.getDataRange();
+        var valuesEdit = dataRangeEdit.getValues();
+        for (var eIdx = 1; eIdx < valuesEdit.length; eIdx++) {
+          if (String(valuesEdit[eIdx][0]).trim() === String(data.id).trim()) {
+            var targetRow = eIdx + 1;
+            var statusCol = valuesEdit[eIdx].length - 1;
+            var historyCol = valuesEdit[eIdx].length;
+            sheetEdit.getRange(targetRow, statusCol).setValue("DIEDIT");
+
+            var existingHistory = valuesEdit[eIdx][historyCol - 1] ? String(valuesEdit[eIdx][historyCol - 1]) : "";
+            var logEntry = data.editHistory || ("[" + (data.timestamp || new Date().toLocaleString("id-ID")) + "] DIEDIT oleh " + (data.editedBy || "Admin"));
+            var combinedHistory = (existingHistory && existingHistory !== "-") ? logEntry + "\\n" + existingHistory : logEntry;
+            sheetEdit.getRange(targetRow, historyCol).setValue(combinedHistory);
+
+            sheetEdit.getRange(targetRow, 1, 1, valuesEdit[eIdx].length)
+              .setBackground("#FEF9C3")
+              .setFontColor("#854D0E")
+              .setFontWeight("bold");
+            break;
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        result: "success",
+        message: "Data berhasil diedit dan terblok kuning di Google Sheets!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 4. FITUR HAPUS / BLOK MERAH
+    if (data.action === "delete" || data.action === "delete_multiple" || data.isDeleted) {
+      var targetSheetName = data.sheetName || "Aduan";
+      var sheet = ss.getSheetByName(targetSheetName) || ss.getSheets()[0];
+      var itemsToDelete = data.items || [{ id: data.id, deletedAt: data.deletedAt, deletedBy: data.deletedBy }];
+      var dataRange = sheet.getDataRange();
+      var values = dataRange.getValues();
+      var deleteMap = {};
+      for (var k = 0; k < itemsToDelete.length; k++) {
+        deleteMap[String(itemsToDelete[k].id).trim()] = itemsToDelete[k];
+      }
+
+      for (var i = 1; i < values.length; i++) {
+        var rowId = String(values[i][0]).trim();
+        if (deleteMap[rowId]) {
+          var rowNumber = i + 1;
+          var itemInfo = deleteMap[rowId];
+          var timestampHapus = itemInfo.deletedAt || new Date().toLocaleString("id-ID");
+          var deletedBy = itemInfo.deletedBy || "Admin";
+
+          if (targetSheetName === "Aduan") {
+            sheet.getRange(rowNumber, 10).setValue("DIHAPUS");
+            sheet.getRange(rowNumber, 11).setValue("[" + timestampHapus + "] (DIHAPUS) - Dihapus oleh " + deletedBy + " dari Web");
+          } else {
+            sheet.getRange(rowNumber, values[i].length - 1).setValue("DIHAPUS");
+            sheet.getRange(rowNumber, values[i].length).setValue("[" + timestampHapus + "] Dihapus oleh " + deletedBy);
+          }
+
+          sheet.getRange(rowNumber, 1, 1, values[i].length)
+            .setBackground("#FEE2E2")
+            .setFontColor("#991B1B")
+            .setFontWeight("bold");
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        result: "success",
+        message: "Data berhasil ditandai DIHAPUS dan terblok merah di Google Sheets!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 5. FITUR TAMBAH ADUAN BARU
+    var sheetAduan = ss.getSheetByName("Aduan");
+    if (!sheetAduan) {
+      sheetAduan = ss.insertSheet("Aduan");
+      sheetAduan.appendRow(["ID Aduan", "Tanggal & Waktu Aduan", "Nama Guru Pelapor", "Mata Pelajaran", "Kelas", "Murid Melanggar", "Jenis Kesalahan", "Bukti Foto / Link Drive", "Catatan / Kronologi", "Status Terbaru", "Riwayat Tindak Lanjut"]);
+      sheetAduan.getRange(1, 1, 1, 11).setBackground("#0F766E").setFontColor("#FFFFFF").setFontWeight("bold").setHorizontalAlignment("center");
+    }
+
+    var fotoUrl = processPhotosList(data);
+    var siswaStr = Array.isArray(data.siswaList) ? data.siswaList.join(", ") : (data.siswaList || "-");
+    var ketStr = (data.jenisKesalahan || "") + (data.keteranganLainnya ? " (" + data.keteranganLainnya + ")" : "");
+
+    sheetAduan.appendRow([
+      data.id || "",
+      data.timestampAduan || new Date().toLocaleString("id-ID"),
+      data.namaGuru || "",
+      data.mapel || "",
+      data.kelas || "",
+      siswaStr,
+      ketStr,
+      fotoUrl,
+      data.catatanKronologi || "-",
+      data.status || "Belum Ditindak Lanjuti",
+      "-"
+    ]);
+
+    return ContentService.createTextOutput(JSON.stringify({
+      result: "success",
+      message: "Aduan & bukti foto berhasil disimpan ke Google Drive dan Google Sheets!",
+      photoLinks: fotoUrl
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({ result: "error", message: error.toString() })).setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+}
+
 const TOKEN_KEY = 'sawal_google_sheets_token';
 const EXPIRES_KEY = 'sawal_google_sheets_token_expires';
 
@@ -1592,6 +2060,361 @@ export function saveStoredLastAutoSync(timestamp: string) {
       })
     );
   }
+}
+
+export interface CloudFetchResult {
+  success: boolean;
+  source: 'webapp' | 'gviz' | 'none';
+  message: string;
+  data?: {
+    aduanList?: Aduan[];
+    deletedAduanList?: Aduan[];
+    guruList?: Guru[];
+    deletedGuruList?: Guru[];
+    mapelList?: Mapel[];
+    deletedMapelList?: Mapel[];
+    kelasList?: Kelas[];
+    deletedKelasList?: Kelas[];
+    siswaList?: Siswa[];
+    deletedSiswaList?: Siswa[];
+    waliKelasList?: AccountWaliKelas[];
+    deletedWaliKelasList?: AccountWaliKelas[];
+  };
+}
+
+/**
+ * Fetch latest real-time database from Google Cloud (Apps Script Web App or Google Sheets GViz)
+ */
+export async function fetchCloudData(): Promise<CloudFetchResult> {
+  const webAppUrl = getStoredWebAppUrl();
+  const spreadsheetId = getStoredSpreadsheetId();
+
+  // 1. Try Google Apps Script Web App (Fastest & most complete, returns all tables)
+  if (webAppUrl) {
+    try {
+      const res = await fetch(webAppUrl, { method: 'GET' });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.status === 'online' || json.murid || json.guru || json.aduan) {
+          const parsedData: CloudFetchResult['data'] = {};
+
+          // Murid
+          if (Array.isArray(json.murid) && json.murid.length > 0) {
+            const activeSiswa: Siswa[] = [];
+            const deletedSiswa: Siswa[] = [];
+            json.murid.forEach((row: any, idx: number) => {
+              const id = String(row['ID'] || `murid_${idx + 1}`).trim();
+              const nama = String(row['Nama Lengkap Murid'] || row['Nama Murid'] || row['Nama Siswa'] || '').trim();
+              const nis = String(row['NIS'] || '').trim();
+              const kelas = String(row['Kelas'] || '').trim();
+              const status = String(row['Status'] || 'AKTIF').trim();
+              const history = String(row['Riwayat & Keterangan Perubahan'] || '-').trim();
+
+              if (!nama) return;
+
+              const isDeleted = status.toUpperCase().includes('HAPUS');
+              const isEdited = status.toUpperCase().includes('EDIT');
+
+              const item: Siswa = {
+                id,
+                nama,
+                nis,
+                kelas,
+                isEdited,
+                isDeleted,
+                editHistory: history !== '-' ? history : undefined
+              };
+
+              if (isDeleted) {
+                deletedSiswa.push(item);
+              } else {
+                activeSiswa.push(item);
+              }
+            });
+
+            if (activeSiswa.length > 0 || deletedSiswa.length > 0) {
+              parsedData.siswaList = activeSiswa;
+              parsedData.deletedSiswaList = deletedSiswa;
+            }
+          }
+
+          // Guru
+          if (Array.isArray(json.guru) && json.guru.length > 0) {
+            const activeGuru: Guru[] = [];
+            const deletedGuru: Guru[] = [];
+            json.guru.forEach((row: any, idx: number) => {
+              const id = String(row['ID'] || `guru_${idx + 1}`).trim();
+              const nama = String(row['Nama Lengkap Guru'] || row['Nama Guru'] || '').trim();
+              const nip = String(row['NIP'] || '-').trim();
+              const mapelUtama = String(row['Mata Pelajaran Utama'] || row['Mapel'] || '-').trim();
+              const status = String(row['Status'] || 'AKTIF').trim();
+              const history = String(row['Riwayat & Keterangan Perubahan'] || '-').trim();
+
+              if (!nama) return;
+              const isDeleted = status.toUpperCase().includes('HAPUS');
+              const isEdited = status.toUpperCase().includes('EDIT');
+
+              const item: Guru = {
+                id,
+                nama,
+                nip,
+                mapelUtama,
+                isEdited,
+                isDeleted,
+                editHistory: history !== '-' ? history : undefined
+              };
+              if (isDeleted) deletedGuru.push(item);
+              else activeGuru.push(item);
+            });
+            if (activeGuru.length > 0 || deletedGuru.length > 0) {
+              parsedData.guruList = activeGuru;
+              parsedData.deletedGuruList = deletedGuru;
+            }
+          }
+
+          // Mapel
+          if (Array.isArray(json.mapel) && json.mapel.length > 0) {
+            const activeMapel: Mapel[] = [];
+            const deletedMapel: Mapel[] = [];
+            json.mapel.forEach((row: any, idx: number) => {
+              const id = String(row['ID'] || `mapel_${idx + 1}`).trim();
+              const nama = String(row['Nama Mata Pelajaran'] || row['Mata Pelajaran'] || '').trim();
+              const kode = String(row['Kode Mapel'] || '-').trim();
+              const status = String(row['Status'] || 'AKTIF').trim();
+              const history = String(row['Riwayat & Keterangan Perubahan'] || '-').trim();
+
+              if (!nama) return;
+              const isDeleted = status.toUpperCase().includes('HAPUS');
+              const isEdited = status.toUpperCase().includes('EDIT');
+
+              const item: Mapel = {
+                id,
+                nama,
+                kode,
+                isEdited,
+                isDeleted,
+                editHistory: history !== '-' ? history : undefined
+              };
+              if (isDeleted) deletedMapel.push(item);
+              else activeMapel.push(item);
+            });
+            if (activeMapel.length > 0 || deletedMapel.length > 0) {
+              parsedData.mapelList = activeMapel;
+              parsedData.deletedMapelList = deletedMapel;
+            }
+          }
+
+          // Kelas
+          if (Array.isArray(json.kelas) && json.kelas.length > 0) {
+            const activeKelas: Kelas[] = [];
+            const deletedKelas: Kelas[] = [];
+            json.kelas.forEach((row: any, idx: number) => {
+              const id = String(row['ID'] || `kelas_${idx + 1}`).trim();
+              const nama = String(row['Nama Kelas / Rombel'] || row['Kelas'] || '').trim();
+              const status = String(row['Status'] || 'AKTIF').trim();
+              const history = String(row['Riwayat & Keterangan Perubahan'] || '-').trim();
+
+              if (!nama) return;
+              const isDeleted = status.toUpperCase().includes('HAPUS');
+              const isEdited = status.toUpperCase().includes('EDIT');
+
+              const item: Kelas = {
+                id,
+                nama,
+                isEdited,
+                isDeleted,
+                editHistory: history !== '-' ? history : undefined
+              };
+              if (isDeleted) deletedKelas.push(item);
+              else activeKelas.push(item);
+            });
+            if (activeKelas.length > 0 || deletedKelas.length > 0) {
+              parsedData.kelasList = activeKelas;
+              parsedData.deletedKelasList = deletedKelas;
+            }
+          }
+
+          // Wali Kelas
+          if (Array.isArray(json.waliKelas) && json.waliKelas.length > 0) {
+            const activeWK: AccountWaliKelas[] = [];
+            const deletedWK: AccountWaliKelas[] = [];
+            json.waliKelas.forEach((row: any, idx: number) => {
+              const id = String(row['ID'] || `wk_${idx + 1}`).trim();
+              const nama = String(row['Nama Lengkap Wali Kelas'] || row['Nama Wali Kelas'] || '').trim();
+              const kelasAssigned = String(row['Kelas Binaan'] || row['Kelas'] || '').trim();
+              const username = String(row['Username Login'] || row['Username'] || '').trim();
+              const status = String(row['Status'] || 'AKTIF').trim();
+              const history = String(row['Riwayat & Keterangan Perubahan'] || '-').trim();
+
+              if (!username) return;
+              const isDeleted = status.toUpperCase().includes('HAPUS');
+              const isEdited = status.toUpperCase().includes('EDIT');
+
+              const item: AccountWaliKelas = {
+                id,
+                nama,
+                kelasAssigned,
+                username,
+                password: String(row['Password'] || 'walikelas123'),
+                isEdited,
+                isDeleted,
+                editHistory: history !== '-' ? history : undefined
+              };
+              if (isDeleted) deletedWK.push(item);
+              else activeWK.push(item);
+            });
+            if (activeWK.length > 0 || deletedWK.length > 0) {
+              parsedData.waliKelasList = activeWK;
+              parsedData.deletedWaliKelasList = deletedWK;
+            }
+          }
+
+          // Aduan
+          if (Array.isArray(json.aduan) && json.aduan.length > 0) {
+            const activeAduan: Aduan[] = [];
+            const deletedAduan: Aduan[] = [];
+            json.aduan.forEach((row: any, idx: number) => {
+              const id = String(row['ID Aduan'] || row['ID'] || `aduan_${idx + 1}`).trim();
+              const timestampAduan = String(row['Tanggal & Waktu Aduan'] || row['Tanggal'] || '').trim();
+              const namaGuru = String(row['Nama Guru Pelapor'] || row['Nama Guru'] || '').trim();
+              const mapel = String(row['Mata Pelajaran'] || '').trim();
+              const kelas = String(row['Kelas'] || '').trim();
+              const muridRaw = String(row['Murid Melanggar'] || row['Nama Siswa'] || row['Nama Murid'] || '').trim();
+              const jenisKesalahan = String(row['Jenis Kesalahan'] || '').trim();
+              const fotoBukti = String(row['Bukti Foto / Link Drive'] || row['Foto'] || '-').trim();
+              const catatanKronologi = String(row['Catatan / Kronologi'] || '-').trim();
+              const status = (row['Status Terbaru'] || row['Status'] || 'Belum Ditindak Lanjuti') as StatusAduan;
+              const riwayatRaw = String(row['Riwayat Tindak Lanjut'] || '-').trim();
+
+              if (!id) return;
+              const isDeleted = status === ('DIHAPUS' as any);
+
+              const siswaList = muridRaw ? muridRaw.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+              const fotoBuktiList = fotoBukti && fotoBukti !== '-' ? fotoBukti.split('\n').map((f: string) => f.trim()).filter(Boolean) : [];
+
+              const item: Aduan = {
+                id,
+                timestampAduan,
+                createdAtISO: String(row['CreatedAtISO'] || new Date().toISOString()),
+                namaGuru,
+                mapel,
+                kelas,
+                siswaList,
+                jenisKesalahan,
+                fotoBukti,
+                fotoBuktiList,
+                catatanKronologi,
+                status: isDeleted ? 'Belum Ditindak Lanjuti' : status,
+                isDeleted
+              };
+
+              if (isDeleted) deletedAduan.push(item);
+              else activeAduan.push(item);
+            });
+            if (activeAduan.length > 0 || deletedAduan.length > 0) {
+              parsedData.aduanList = activeAduan;
+              parsedData.deletedAduanList = deletedAduan;
+            }
+          }
+
+          return {
+            success: true,
+            source: 'webapp',
+            message: 'Berhasil memuat data real-time dari Google Sheets Web App.',
+            data: parsedData
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Gagal fetch data dari Web App:', e);
+    }
+  }
+
+  // 2. Fallback: Try Public GViz query if spreadsheet is shared publicly
+  try {
+    const gvizMuridUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&sheet=Data_Murid`;
+    const gvizRes = await fetch(gvizMuridUrl);
+    if (gvizRes.ok) {
+      const text = await gvizRes.text();
+      const match = text.match(/google\.visualization\.Query\.setResponse\((.*)\);/);
+      if (match && match[1]) {
+        const gvizJson = JSON.parse(match[1]);
+        if (gvizJson.table && Array.isArray(gvizJson.table.rows)) {
+          const activeSiswa: Siswa[] = [];
+          const deletedSiswa: Siswa[] = [];
+
+          gvizJson.table.rows.forEach((r: any, idx: number) => {
+            const c = r.c || [];
+            const id = c[0]?.v ? String(c[0].v).trim() : `murid_${idx + 1}`;
+            const nis = c[1]?.v ? String(c[1].v).trim() : '';
+            const nama = c[2]?.v ? String(c[2].v).trim() : '';
+            const kelas = c[3]?.v ? String(c[3].v).trim() : '';
+            const status = c[4]?.v ? String(c[4].v).trim() : 'AKTIF';
+            const history = c[5]?.v ? String(c[5].v).trim() : '-';
+
+            if (!nama) return;
+            const isDeleted = status.toUpperCase().includes('HAPUS');
+            const isEdited = status.toUpperCase().includes('EDIT');
+
+            const item: Siswa = {
+              id,
+              nama,
+              nis,
+              kelas,
+              isEdited,
+              isDeleted,
+              editHistory: history !== '-' ? history : undefined
+            };
+
+            if (isDeleted) deletedSiswa.push(item);
+            else activeSiswa.push(item);
+          });
+
+          if (activeSiswa.length > 0 || deletedSiswa.length > 0) {
+            return {
+              success: true,
+              source: 'gviz',
+              message: `Berhasil memuat ${activeSiswa.length} data murid via Google Sheets GViz.`,
+              data: {
+                siswaList: activeSiswa,
+                deletedSiswaList: deletedSiswa
+              }
+            };
+          }
+        }
+      }
+    }
+  } catch (errGViz) {
+    console.warn('GViz fetch fallback error:', errGViz);
+  }
+
+  return {
+    success: false,
+    source: 'none',
+    message: 'Belum ada Web App URL atau Google Spreadsheet belum dibagikan publik.'
+  };
+}
+
+/**
+ * Force push all current local database into Google Sheets & Drive
+ */
+export async function pushAllLocalDataToCloud(): Promise<{ success: boolean; message: string }> {
+  const customData = {
+    aduanList: getStoredAduan(),
+    deletedAduanList: getStoredDeletedAduan(),
+    guruList: getStoredGuru(),
+    deletedGuruList: getStoredDeletedGuru(),
+    mapelList: getStoredMapel(),
+    deletedMapelList: getStoredDeletedMapel(),
+    kelasList: getStoredKelas(),
+    deletedKelasList: getStoredDeletedKelas(),
+    siswaList: getStoredSiswa(),
+    deletedSiswaList: getStoredDeletedSiswa(),
+    waliKelasList: getStoredWaliKelas(),
+    deletedWaliKelasList: getStoredDeletedWaliKelas()
+  };
+
+  return await triggerBackgroundAutoSync('all', customData);
 }
 
 /**

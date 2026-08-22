@@ -52,6 +52,7 @@ import {
   getStoredSheetsToken,
   uploadPhotosToGoogleDrive,
   triggerBackgroundAutoSync,
+  fetchCloudData,
   DRIVE_FOLDER_URL
 } from './services/googleSheets';
 import { cachePhoto } from './utils/photoCache';
@@ -83,6 +84,65 @@ export default function App() {
 
   // Active sub menu state: 'form' | 'pantau' | 'statistik' | 'dashboard'
   const [activeSubMenu, setActiveSubMenu] = useState<SubMenuType>('form');
+
+  // Real-time Cloud Synchronization (Multi-Device: HP, Desktop, Tablet)
+  useEffect(() => {
+    let isMounted = true;
+
+    const pullLatestCloudData = async () => {
+      try {
+        const cloud = await fetchCloudData();
+        if (cloud.success && cloud.data && isMounted) {
+          if (cloud.data.siswaList && cloud.data.siswaList.length > 0) {
+            setSiswaList(cloud.data.siswaList);
+            saveSiswa(cloud.data.siswaList);
+          }
+          if (cloud.data.guruList && cloud.data.guruList.length > 0) {
+            setGuruList(cloud.data.guruList);
+            saveGuru(cloud.data.guruList);
+          }
+          if (cloud.data.mapelList && cloud.data.mapelList.length > 0) {
+            setMapelList(cloud.data.mapelList);
+            saveMapel(cloud.data.mapelList);
+          }
+          if (cloud.data.kelasList && cloud.data.kelasList.length > 0) {
+            setKelasList(cloud.data.kelasList);
+            saveKelas(cloud.data.kelasList);
+          }
+          if (cloud.data.waliKelasList && cloud.data.waliKelasList.length > 0) {
+            setWaliKelasList(cloud.data.waliKelasList);
+            saveWaliKelas(cloud.data.waliKelasList);
+          }
+          if (cloud.data.aduanList && cloud.data.aduanList.length > 0) {
+            setAduanList(cloud.data.aduanList);
+            saveAduan(cloud.data.aduanList);
+          }
+        }
+      } catch (err) {
+        console.warn('Realtime cloud pull notice:', err);
+      }
+    };
+
+    // 1. Initial pull on load
+    pullLatestCloudData();
+
+    // 2. Pull when user switches back to this tab / unlocks phone
+    const handleWindowFocus = () => {
+      pullLatestCloudData();
+    };
+    window.addEventListener('focus', handleWindowFocus);
+
+    // 3. Periodic background sync polling every 25 seconds
+    const intervalTimer = setInterval(() => {
+      pullLatestCloudData();
+    }, 25000);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('focus', handleWindowFocus);
+      clearInterval(intervalTimer);
+    };
+  }, []);
 
   // Persistence update handlers
   const handleUpdateGuru = (list: Guru[], deletedList?: Guru[]) => {
