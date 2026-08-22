@@ -8,19 +8,21 @@ import {
   INITIAL_ADUAN
 } from './mockData';
 
+const STORAGE_VERSION = 'v2_';
+
 const KEYS = {
-  GURU: 'sawal_guru_list',
-  MAPEL: 'sawal_mapel_list',
-  KELAS: 'sawal_kelas_list',
-  SISWA: 'sawal_siswa_list',
-  WALI_KELAS: 'sawal_walikelas_list',
-  ADUAN: 'sawal_aduan_list',
-  DELETED_ADUAN: 'sawal_deleted_aduan_list',
-  DELETED_GURU: 'sawal_deleted_guru_list',
-  DELETED_MAPEL: 'sawal_deleted_mapel_list',
-  DELETED_KELAS: 'sawal_deleted_kelas_list',
-  DELETED_SISWA: 'sawal_deleted_siswa_list',
-  DELETED_WALI_KELAS: 'sawal_deleted_walikelas_list'
+  GURU: `${STORAGE_VERSION}sawal_guru_list`,
+  MAPEL: `${STORAGE_VERSION}sawal_mapel_list`,
+  KELAS: `${STORAGE_VERSION}sawal_kelas_list`,
+  SISWA: `${STORAGE_VERSION}sawal_siswa_list`,
+  WALI_KELAS: `${STORAGE_VERSION}sawal_walikelas_list`,
+  ADUAN: `${STORAGE_VERSION}sawal_aduan_list`,
+  DELETED_ADUAN: `${STORAGE_VERSION}sawal_deleted_aduan_list`,
+  DELETED_GURU: `${STORAGE_VERSION}sawal_deleted_guru_list`,
+  DELETED_MAPEL: `${STORAGE_VERSION}sawal_deleted_mapel_list`,
+  DELETED_KELAS: `${STORAGE_VERSION}sawal_deleted_kelas_list`,
+  DELETED_SISWA: `${STORAGE_VERSION}sawal_deleted_siswa_list`,
+  DELETED_WALI_KELAS: `${STORAGE_VERSION}sawal_deleted_walikelas_list`
 };
 
 export function getStoredGuru(): Guru[] {
