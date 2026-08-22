@@ -85,40 +85,40 @@ export default function App() {
   const [activeSubMenu, setActiveSubMenu] = useState<SubMenuType>('form');
 
   // Persistence update handlers
-  const handleUpdateGuru = (list: Guru[]) => {
+  const handleUpdateGuru = (list: Guru[], deletedList?: Guru[]) => {
     setGuruList(list);
     saveGuru(list);
-    triggerBackgroundAutoSync('guru', { guruList: list });
+    triggerBackgroundAutoSync('guru', { guruList: list, deletedGuruList: deletedList });
   };
 
-  const handleUpdateMapel = (list: Mapel[]) => {
+  const handleUpdateMapel = (list: Mapel[], deletedList?: Mapel[]) => {
     setMapelList(list);
     saveMapel(list);
-    triggerBackgroundAutoSync('mapel', { mapelList: list });
+    triggerBackgroundAutoSync('mapel', { mapelList: list, deletedMapelList: deletedList });
   };
 
-  const handleUpdateKelas = (list: Kelas[]) => {
+  const handleUpdateKelas = (list: Kelas[], deletedList?: Kelas[]) => {
     setKelasList(list);
     saveKelas(list);
-    triggerBackgroundAutoSync('kelas', { kelasList: list });
+    triggerBackgroundAutoSync('kelas', { kelasList: list, deletedKelasList: deletedList });
   };
 
-  const handleUpdateSiswa = (list: Siswa[]) => {
+  const handleUpdateSiswa = (list: Siswa[], deletedList?: Siswa[]) => {
     setSiswaList(list);
     saveSiswa(list);
-    triggerBackgroundAutoSync('murid', { siswaList: list });
+    triggerBackgroundAutoSync('murid', { siswaList: list, deletedSiswaList: deletedList });
   };
 
-  const handleUpdateWaliKelas = (list: AccountWaliKelas[]) => {
+  const handleUpdateWaliKelas = (list: AccountWaliKelas[], deletedList?: AccountWaliKelas[]) => {
     setWaliKelasList(list);
     saveWaliKelas(list);
-    triggerBackgroundAutoSync('walikelas', { waliKelasList: list });
+    triggerBackgroundAutoSync('walikelas', { waliKelasList: list, deletedWaliKelasList: deletedList });
   };
 
-  const handleUpdateAduan = (list: Aduan[]) => {
+  const handleUpdateAduan = (list: Aduan[], deletedList?: Aduan[]) => {
     setAduanList(list);
     saveAduan(list);
-    triggerBackgroundAutoSync('aduan', { aduanList: list });
+    triggerBackgroundAutoSync('aduan', { aduanList: list, deletedAduanList: deletedList });
   };
 
   // Submit new aduan from public form
@@ -175,6 +175,7 @@ export default function App() {
 
     // Auto-sync single aduan (supports Web App URL and OAuth Token)
     await appendSingleAduanToSheet(fullAduan, token || undefined);
+    triggerBackgroundAutoSync('aduan', { aduanList: updated });
   };
 
   // Update status and add follow-up log from Wali Kelas

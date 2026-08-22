@@ -968,12 +968,15 @@ export async function notifyDeleteAduanToGoogleSheets(
   const token = accessToken || getStoredSheetsToken();
   if (token) {
     try {
-      const syncRes = await syncAduanToGoogleSheet(activeAduanList, token);
+      const syncRes = await syncAduanToGoogleSheet(activeAduanList, token, deletedAduanList);
       oAuthSuccess = syncRes.success;
     } catch (e) {
       console.warn('OAuth sync aduan error:', e);
     }
   }
+
+  // 3. Always dispatch background auto sync to keep all sheets, localStorage and state in perfect parity
+  triggerBackgroundAutoSync('aduan', { aduanList: activeAduanList, deletedAduanList });
 
   if (webAppSuccess || oAuthSuccess) {
     return {

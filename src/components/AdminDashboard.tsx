@@ -31,6 +31,7 @@ import { KelolaMapelTab } from './admin/KelolaMapelTab';
 import { KelolaKelasTab } from './admin/KelolaKelasTab';
 import { KelolaMuridTab } from './admin/KelolaMuridTab';
 import { KelolaWaliKelasTab } from './admin/KelolaWaliKelasTab';
+import { triggerBackgroundAutoSync } from '../services/googleSheets';
 
 interface AdminDashboardProps {
   guruList: Guru[];
@@ -206,7 +207,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onUpdateAduan(parsed.aduanList);
         }
 
-        setNotice(`✅ Berhasil memulihkan seluruh data cadangan (${restoredCount} guru, ${parsed.siswaList?.length || 0} murid, ${parsed.aduanList?.length || 0} aduan)!`);
+        triggerBackgroundAutoSync('all', {
+          guruList: parsed.guruList,
+          mapelList: parsed.mapelList,
+          kelasList: parsed.kelasList,
+          siswaList: parsed.siswaList,
+          waliKelasList: parsed.waliKelasList,
+          aduanList: parsed.aduanList
+        });
+
+        setNotice(`✅ Berhasil memulihkan seluruh data cadangan (${restoredCount} guru, ${parsed.siswaList?.length || 0} murid, ${parsed.aduanList?.length || 0} aduan) & otomatis disinkronkan ke Google Sheets!`);
         setTimeout(() => setNotice(null), 7000);
       } catch (err: any) {
         alert('File cadangan (.json) tidak valid atau rusak!');
